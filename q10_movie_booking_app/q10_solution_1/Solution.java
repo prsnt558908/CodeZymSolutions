@@ -54,7 +54,9 @@ public class Solution implements Q10MovieBookingInterface{
     }
 
     public int getFreeSeatsCount(int showId) {
-        return bookingManager.getFreeSeatsCount(showId);
+        Show show = showManager.getShow(showId);
+        if(show==null) return 0;
+        return bookingManager.getFreeSeatsCount(show);
     }
 
     // returns cinemaId's of all cinemas which are running a show for given movie
@@ -267,13 +269,14 @@ class TicketBookingManager{
           booked[row][column]=false;
         }
         freeSeatsCount.put(booking.getShowId(),
-          freeSeatsCount.get(booking.getShowId())-booking.getSeats().size());
+          freeSeatsCount.get(booking.getShowId())+booking.getSeats().size());
         return true;
     }
 
-    public int getFreeSeatsCount(int showId) {
-        return freeSeatsCount.getOrDefault(
-                showId, 0);
+    public int getFreeSeatsCount(Show show) {
+        Cinema cinema=show.getCinema();
+        return freeSeatsCount.getOrDefault( show.getShowId(),
+         cinema.getScreenRow()*cinema.getScreenColumn());
     }
 }
 
