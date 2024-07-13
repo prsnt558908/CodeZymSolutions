@@ -1,0 +1,2 @@
+This repository contains Java and Python solutions to learn Low Level Design (LLD) / Object Oriented Design (OOD) and prepare for interviews.
+You can find all problem statements on https://codezym.com/
