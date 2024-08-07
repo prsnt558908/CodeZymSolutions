@@ -74,7 +74,6 @@ class Solution:
         """
         return self.search_manager.search_vehicle(vehicle_number, ticket_id)
 
-
 class ParkingFloor:
     def __init__(self, floor: int, parking_floor: list, vehicle_types: list, helper):
         """
@@ -185,7 +184,6 @@ class ParkingSpot:
         :return: Vehicle type.
         """
         return self.vehicle_type
-
 
 class SearchManager:
     def __init__(self):

@@ -131,6 +131,34 @@ class MostRatedRestaurantsByFood implements RateOrderObserver{
     }
 }
 
+class Order{
+    private String orderId, restaurantId, foodItemId;
+    private int rating;
+    Order(String orderId, String restaurantId, String foodItemId, int rating){
+        this.orderId=orderId;
+        this.restaurantId=restaurantId;
+        this.foodItemId=foodItemId;
+        this.rating=rating;
+    }
+
+    public void setRating(int rating) {
+        this.rating = rating;
+    }
+
+    public String getRestaurantId() {
+        return restaurantId;
+    }
+
+    public String getFoodItemId() {
+        return foodItemId;
+    }
+
+    public int getRating() {
+        return rating;
+    }
+
+}
+
 class Rating{
     private int sum=0, count=0;
     Rating(int sum, int count){
@@ -155,39 +183,13 @@ class Rating{
     }
 }
 
-class Order{
-    private String orderId, restaurantId, foodItemId;
-    private int rating;
-    Order(String orderId, String restaurantId, String foodItemId, int rating){
-        this.orderId=orderId;
-        this.restaurantId=restaurantId;
-        this.foodItemId=foodItemId;
-        this.rating=rating;
-    }
-    
-    public void setRating(int rating) {
-        this.rating = rating;
-    }
-    
-    public String getRestaurantId() {
-        return restaurantId;
-    }
 
-    public String getFoodItemId() {
-        return foodItemId;
-    }
-
-    public int getRating() {
-        return rating;
-    }
-
-}
 
 // uncomment below code in case you are using your local ide like intellij, eclipse etc and
 // comment it back again back when you are pasting completed solution in the online CodeZym editor.
 // if you don't comment it back, you will get "java.lang.AssertionError: java.lang.LinkageError"
 // This will help avoid unwanted compilation errors and get method autocomplete in your local code editor.
-/**
+
 interface Q05RestaurantRatingInterface {
     void init(Helper05 helper);
     void orderFood(String orderId, String restaurantId, String foodItemId);
@@ -200,4 +202,3 @@ class Helper05 {
     void print(String s){System.out.print(s);}
     void println(String s){System.out.println(s);}
 }
-*/
