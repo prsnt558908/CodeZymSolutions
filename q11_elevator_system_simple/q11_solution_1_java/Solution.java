@@ -18,8 +18,8 @@ public class Solution implements Q11ElevatorSystemInterface {
         // helper.println("Lift system initialized ...");
     }
     
-    /** max 10 people can be there anytime in the lift
-     * press the outside UP or DOWN button, returns lift index or -1 */
+    /** maximum count of people inside lift liftCapacity 
+     * user press the outside UP or DOWN button outside lift, returns lift index or -1 */
     public int requestLift(int floor, char direction) {
         int liftIndex=-1, timeTaken=-1;
         for(int i=0;i<lifts.length;i++){
@@ -71,7 +71,6 @@ class Lift {
                       movingUpToPickFirst, movingDownToPickFirst, state;
 
     Lift(int floors, int capacity){
-        //requests = new ArrayList<LiftRequest>();
         this.floors=floors;
         this.capacity=capacity;
         movingUpState = new MovingUpState(this);
@@ -120,11 +119,6 @@ class Lift {
      in given direction, returns -1 if direction is invalid for lift
      */
     public int countPeople(int floor, char direction){
-        /*int peopleCount=0;
-        for(int floorItr: outgoingRequestsCount.keySet())
-            peopleCount+=outgoingRequestsCount.getOrDefault(floorItr,0);
-        return peopleCount;
-         */
         return state.countPeople(floor, direction);
     }
     
@@ -137,8 +131,6 @@ class Lift {
     }
 
     void tick(){
-        // remove old floor
-        //incomingRequestsCount.remove(currentFloor);
         state.tick();
         // if there are no people inside lift and no incoming requests then change lift state to idle
         if(outgoingRequestsCount.size()==0 && incomingRequestsCount.size()==0)
@@ -167,18 +159,6 @@ abstract class LiftState {
     LiftState(Lift lift){
         this.lift=lift;
     }
-   /* public void updateFloor(){}
-    public void updateDirection(){}
-    public void updatePeopleCount(){
-       int floor=lift.getCurrentFloor();
-       lift.setCurrentPeopleCount(lift.getCurrentPeopleCount()
-               +lift.incomingRequestsCount.getOrDefault(floor,0)
-               -lift.outgoingRequestsCount.getOrDefault(floor, 0));
-       lift.incomingRequestsCount.remove(floor);
-       lift.outgoingRequestsCount.remove(floor);
-    }
-    public void updateNextState(){}
-    */
     public abstract char getDirection();
     public abstract int getTimeToReachFloor(int floor, char direction);
     /** counts only from people who are already in */
@@ -292,13 +272,6 @@ class MovingUpToPickFirstState extends LiftState {
         return nextStop - lift.getCurrentFloor() + nextStop - floor;
     }
 
-    // people who will enter on given floor are certain to be there and
-    // there will be no outgoing requests as lift is yet to pick first passenger
-  /*  public int countPeople(int floor, char direction) {
-        if (direction != 'D' || floor > nextStop()) return -1;
-        return lift.incomingRequestsCount.getOrDefault(
-                lift.getCurrentFloor(), 0);
-    }   */
     // topmost floor till which will go up to, it won't serve requests above this floor
     int nextStop() {
         int nextStop = -1;
@@ -311,7 +284,6 @@ class MovingUpToPickFirstState extends LiftState {
         lift.setCurrentFloor(lift.getCurrentFloor() + 1);
         int nextFloor = nextStop();
         if (lift.getCurrentFloor() == nextFloor) {
-            //lift.incomingRequestsCount.remove(lift.getCurrentFloor());
             lift.setState('D');
         }
     }
@@ -336,14 +308,7 @@ class MovingDownToPickFirstState extends LiftState{
         return lift.getCurrentFloor()-nextStop+floor-nextStop;
     }
 
-    // people who will enter on given floor are certain to be there and
-    // there will be no outgoing requests as lift is yet to pick first passenger
-    /*public int countPeople(int floor, char direction){
-        if(direction!='U' || floor<nextStop()) return -1;
-        return lift.incomingRequestsCount.getOrDefault(
-                lift.getCurrentFloor(), 0);
-    }*/
-    // lowest floor lift will go down to
+     // lowest floor lift will go down to
     private int nextStop(){
         int nextStop=-1;
         for(int floor: lift.incomingRequestsCount)
@@ -355,7 +320,6 @@ class MovingDownToPickFirstState extends LiftState{
         lift.setCurrentFloor(lift.getCurrentFloor()-1);
         int nextFloor=nextStop();
         if(lift.getCurrentFloor()==nextFloor){
-            //lift.incomingRequestsCount.remove(lift.getCurrentFloor());
             lift.setState('U');
         }
     }
