@@ -50,8 +50,6 @@ Now there are going to be many other functionalities like Payments, User Managem
 
 In real world, this can be quite a large system with tens of functionalities and hundreds of classes. Hence in a 60 minute interview round, nobody is expecting you to write down all the classes in all the components/functionalities that may exist in these systems.
 
-Subscribe to the Medium newsletter
-
 A better approach is to figure out the features that your interviewer wants to discuss with you. For a parking lot system almost every time these will be the core features that we discussed above. For a LLD interview, it is important to know what topics to discuss and which other features to leave out of discussion. Let’s start working on the design.
 
 ## Breaking the solution in multiple classes
