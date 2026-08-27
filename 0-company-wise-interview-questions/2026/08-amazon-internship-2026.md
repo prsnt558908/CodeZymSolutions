@@ -2,42 +2,55 @@ Amazon Internship Preparation
 
 # Amazon Internship Interview Round DS & Algo Questions 2026
 
-This is a  preparation list for Amazon SDE and SDET internship coding rounds, along with a practical overview of the online assessment and interview process.
+Preparation list for Amazon SDE and SDET internship coding rounds, along with a practical overview of the online assessment and interview process.
 
 Apart from the online assessment (OA), the internship process usually includes two DS & Algo interviews of around one hour each, together with behavioral questions.
 
-Low Level Design questions are generally not asked for internship roles. A few candidates have reported an elevator-system LLD question for SDET internships, but those cases appear to be exceptions rather than the norm.
+Not every interview follows the same format. Some candidates worry that receiving no behavioral questions means they have already been rejected. That is not necessarily true: one candidate reported receiving an internship offer 15 days after an interview that contained no behavioral questions.
 
---- 
-## Are you instead looking for these ?
+Low Level Design questions are generally not asked for internship roles. However, one candidate reported receiving an elevator-system LLD question for an SDET internship. Such cases appear to be exceptions rather than the norm.
 
-Amazon DS & Algo Questions for full-time SDE positions.
+The experiences below are candidate-reported and may vary by role, location, university, and hiring cycle.
 
-[https://codezym.com/lld/amazon-dsa](https://codezym.com/lld/amazon-dsa)
+---
 
-Amazon Low Level Design Questions
+## Interview Process
 
-[https://codezym.com/lld/amazon](https://codezym.com/lld/amazon)
+### Online Assessment
 
-Complete Amazon Internship Question List
-
-[https://codezym.com/lld/amazon-intern](https://codezym.com/lld/amazon-intern)
-
-----
-
-**Online assessment:** the OA includes DSA and an AI-assisted coding question.
+The OA includes DSA and an AI-assisted coding question.
 
 For the AI-assisted coding round, you choose one repository. Options may include C++, Django, Spring Boot, ReactJS, Node.js, Ruby on Rails, and similar stacks. The interface provides a code editor and an AI assistant for project-related questions. You have 60 minutes to implement the required behavior and pass the test cases, usually around six. The assistant can help you search the project, locate files, and understand the codebase.
 
 This list includes coding-round questions reported for both SDE intern and SDET intern interviews.
 
-**For candidates in India:** Amazon HackOn can be an effective route to an internship call. Amazon may contact eligible participants who performed well in the coding round, not only the finalists. Strong performers may receive an AUTA interest form.
+### India: Amazon HackOn and AUTA
 
-For the USA and other countries, direct applications through Amazon's jobs portal and employee referrals are the usual routes.
+Amazon HackOn can be an effective route to an internship call. Amazon may contact eligible participants who performed well in the coding round, not only the finalists. Strong performers may receive an AUTA interest form.
+
+One candidate reported that their team was eliminated in the first round of HackOn in May. At the end of July, Amazon shortlisted the candidate for an OA based on their individual HackOn performance. The candidate progressed to an interview in September, was waitlisted, and finally received an SDE internship offer in the last week of November.
+
+### USA and Other Countries
+
+Direct applications through Amazon's jobs portal and employee referrals are the usual routes.
+
+### Do Not Treat One Difficult Round as a Rejection
+
+One candidate applied for a winter internship and found the OA extremely difficult, but eventually passed all test cases after substantial trial and error. When the winter positions filled, Amazon moved the application to the summer cycle and sent an interview confirmation two months later.
+
+During a coding interview, the same candidate struggled with a LeetCode Hard problem and needed help. The candidate continued to explain their reasoning and discuss edge cases throughout the round, and ultimately received an offer.
+
+The practical lesson is to keep communicating your thought process, even when you need a hint or cannot immediately reach the optimal solution.
+
+## Related Amazon Preparation Lists
+
+- [Amazon DS & Algo Questions for Full-Time SDE Positions](https://codezym.com/lld/amazon-dsa)
+- [Amazon Low Level Design Questions](https://codezym.com/lld/amazon)
+- [Complete Amazon Internship Question List](https://codezym.com/lld/amazon-intern)
 
 ## LeetCode Questions
 
-
+Start with these two questions that can be practiced directly on LeetCode.
 
 ### Merge k Sorted Lists
 
@@ -47,13 +60,15 @@ For the USA and other countries, direct applications through Amazon's jobs porta
 
 [https://leetcode.com/problems/construct-binary-tree-from-preorder-and-inorder-traversal/](https://leetcode.com/problems/construct-binary-tree-from-preorder-and-inorder-traversal/)
 
-## Below is the complete list
+## Practice Questions
 
-Use below list to practice for your Amazon internship interview rounds.
+Use the following 36 questions to prepare for your Amazon internship interview rounds.
 
 
 
 ### 1. Days Until a Warmer Temperature
+
+**Difficulty:** Medium
 
 Given daily temperatures, determine how many days must pass after each day before a warmer temperature occurs. Use 0 when no warmer future day exists.
 
@@ -64,6 +79,8 @@ Given daily temperatures, determine how many days must pass after each day befor
 
 ### 2. Next Greater Element in a Circular List
 
+**Difficulty:** Medium
+
 Find the next greater element for every value in a circular list. After the last element, the search continues from the beginning.
 
 [https://codezym.com/question/295-next-greater-element-in-a-circular-list](https://codezym.com/question/295-next-greater-element-in-a-circular-list)
@@ -72,6 +89,8 @@ Find the next greater element for every value in a circular list. After the last
 
 
 ### 3. Adjacent Characters Are Not the Same
+
+**Difficulty:** Medium
 
 Rearrange lowercase letters so no two adjacent characters are the same. Return the lexicographically smallest valid arrangement, or an empty string if impossible.
 
@@ -82,6 +101,8 @@ Rearrange lowercase letters so no two adjacent characters are the same. Return t
 
 ### 4. Maximum Items from Consecutive Shelves
 
+**Difficulty:** Medium
+
 Some non-overlapping shelf ranges contain items while all other shelves are empty. Select exactly k consecutive shelves with the maximum total items.
 
 [https://codezym.com/question/362-max-items-from-consecutive-shelves](https://codezym.com/question/362-max-items-from-consecutive-shelves)
@@ -90,6 +111,8 @@ Some non-overlapping shelf ranges contain items while all other shelves are empt
 
 
 ### 5. Sorted Fence Heights
+
+**Difficulty:** Medium
 
 Increase consecutive groups of fence sections until their heights are non-decreasing. Minimize the total cost, where increasing a group by x costs x.
 
@@ -100,6 +123,8 @@ Increase consecutive groups of fence sections until their heights are non-decrea
 
 ### 6. Minimum Letter Sticker Sheet Design
 
+**Difficulty:** Medium
+
 Design a fixed-size letter-sticker sheet whose identical copies can form a given word. Minimize the copies required, then choose the smallest design lexicographically.
 
 [https://codezym.com/question/364-min-letter-sticker-sheet-design](https://codezym.com/question/364-min-letter-sticker-sheet-design)
@@ -109,6 +134,8 @@ Design a fixed-size letter-sticker sheet whose identical copies can form a given
 
 ### 7. Maximum Training Pair Score
 
+**Difficulty:** Easy
+
 Divide an even number of students into learner-helper pairs. Each pair contributes the learner's ability, and the helper must have equal or greater ability.
 
 [https://codezym.com/question/365-max-training-pair-score](https://codezym.com/question/365-max-training-pair-score)
@@ -116,6 +143,8 @@ Divide an even number of students into learner-helper pairs. Each pair contribut
 
 
 ### 8. Maximum Usable Cable Length
+
+**Difficulty:** Medium
 
 Cut selected cable rolls into exactly the required number of non-empty segments. The longest half fail inspection; maximize the total length that remains.
 
@@ -126,6 +155,8 @@ Cut selected cable rolls into exactly the required number of non-empty segments.
 
 ### 9. Minimum Cost to Make Stall Prices Equal
 
+**Difficulty:** Medium
+
 Copy one stall's current price to every stall on its left or right. Minimize the total cost needed to make all stall prices equal.
 
 [https://codezym.com/question/367-min-cost-to-make-stall-prices-equal](https://codezym.com/question/367-min-cost-to-make-stall-prices-equal)
@@ -134,6 +165,8 @@ Copy one stall's current price to every stall on its left or right. Minimize the
 
 
 ### 10. Minimum Sheet Cutting Time
+
+**Difficulty:** Medium
 
 Lasers cut compatible metal sheets in one second and then cool for one second. Find the minimum time to cut every sheet, or return -1.
 
@@ -144,6 +177,8 @@ Lasers cut compatible metal sheets in one second and then cool for one second. F
 
 ### 11. Possible Final Sensor Readings
 
+**Difficulty:** Medium
+
 Repeatedly remove distinct sensor readings from the beginning or end of their recorded sequence. Determine which original readings can become the only remaining reading.
 
 [https://codezym.com/question/369-possible-final-sensor-readings](https://codezym.com/question/369-possible-final-sensor-readings)
@@ -152,6 +187,8 @@ Repeatedly remove distinct sensor readings from the beginning or end of their re
 
 
 ### 12. Longest and Lexicographically Greatest Palindromic Substrings
+
+**Difficulty:** Medium
 
 Find the longest palindromic substring. Implement one method that returns the first longest palindrome and another that resolves ties lexicographically.
 
@@ -162,6 +199,8 @@ Find the longest palindromic substring. Implement one method that returns the fi
 
 ### 13. Maximum Stock Profit: At Most K Transactions
 
+**Difficulty:** Hard
+
 Return the maximum stock profit using at most k transactions. Each transaction buys once and sells later, and only one stock may be held.
 
 [https://codezym.com/question/297-max-stock-profit-k-transactions](https://codezym.com/question/297-max-stock-profit-k-transactions)
@@ -170,6 +209,8 @@ Return the maximum stock profit using at most k transactions. Each transaction b
 
 
 ### 14. Maximum Demolition Profit
+
+**Difficulty:** Medium
 
 Buildings in a row have positive or negative net values. Demolish buildings only from the ends of the remaining row to maximize collected value.
 
@@ -180,6 +221,8 @@ Buildings in a row have positive or negative net values. Demolish buildings only
 
 ### 15. Maximum Score from Non-Adjacent Tiles
 
+**Difficulty:** Medium
+
 Select non-neighboring tiles to collect their non-negative scores. Determine the maximum score when the tiles form a straight line and when they form a circle.
 
 [https://codezym.com/question/372-max-score-from-non-adjacent-tiles](https://codezym.com/question/372-max-score-from-non-adjacent-tiles)
@@ -188,6 +231,8 @@ Select non-neighboring tiles to collect their non-negative scores. Determine the
 
 
 ### 16. Assign Aggressive Cows To Stalls
+
+**Difficulty:** Medium
 
 Place the required cows in distinct stalls so the closest pair is as far apart as possible. Return that maximum possible minimum distance.
 
@@ -198,6 +243,8 @@ Place the required cows in distinct stalls so the closest pair is as far apart a
 
 ### 17. Count Book Line Groups by One Letter Swap
 
+**Difficulty:** Medium
+
 Scrambled book lines contain the same letters in different positions. Count groups connected directly or indirectly when one swap can make two lines equal.
 
 [https://codezym.com/question/373-count-book-line-groups](https://codezym.com/question/373-count-book-line-groups)
@@ -206,6 +253,8 @@ Scrambled book lines contain the same letters in different positions. Count grou
 
 
 ### 18. Count Prime-Numbered Lockers Under Inspection
+
+**Difficulty:** Medium
 
 A warehouse has several inclusive inspection ranges of locker numbers. Count the distinct prime-numbered lockers covered by at least one range.
 
@@ -216,6 +265,8 @@ A warehouse has several inclusive inspection ranges of locker numbers. Count the
 
 ### 19. Count Ticket Purchase Plans
 
+**Difficulty:** Easy
+
 A cinema sells individual tickets and equal-sized bundles. Count the different combinations that buy exactly the required number of tickets.
 
 [https://codezym.com/question/375-count-ticket-purchase-plans](https://codezym.com/question/375-count-ticket-purchase-plans)
@@ -223,6 +274,8 @@ A cinema sells individual tickets and equal-sized bundles. Count the different c
 
 
 ### 20. Safe Electrical Wire Configurations
+
+**Difficulty:** Medium
 
 Every electrical wire can direct current either way between its stations. Count the safe direction configurations that contain no directed cycle.
 
@@ -233,6 +286,8 @@ Every electrical wire can direct current either way between its stations. Count 
 
 ### 21. Search Minimum And Rotation Count In Rotated Sorted Array
 
+**Difficulty:** Medium
+
 Support target search, minimum-value lookup, and rotation counting in a rotated sorted list that may contain duplicate values.
 
 [https://codezym.com/question/170-rotation-count-rotated-sorted-array](https://codezym.com/question/170-rotation-count-rotated-sorted-array)
@@ -241,6 +296,8 @@ Support target search, minimum-value lookup, and rotation counting in a rotated 
 
 
 ### 22. Remove K Digits to Create Smallest Possible Number
+
+**Difficulty:** Medium
 
 Remove exactly k digits from a non-negative integer while preserving the order of the remaining digits. Return the smallest possible number.
 
@@ -251,6 +308,8 @@ Remove exactly k digits from a non-negative integer while preserving the order o
 
 ### 23. Use Path Operations To Minimize Tree Diameter
 
+**Difficulty:** Medium
+
 A special operation reconnects every vertex on a chosen tree path directly to its start. Find the fewest operations needed to minimize the diameter.
 
 [https://codezym.com/question/171-minimize-tree-diameter](https://codezym.com/question/171-minimize-tree-diameter)
@@ -259,6 +318,8 @@ A special operation reconnects every vertex on a chosen tree path directly to it
 
 
 ### 24. Minimum Parcel Transfer Trips
+
+**Difficulty:** Medium
 
 A trolley carries at most two parcels whose combined weight stays within its load limit. Find the minimum trips needed to move every parcel.
 
@@ -269,6 +330,8 @@ A trolley carries at most two parcels whose combined weight stays within its loa
 
 ### 25. Count Valid Cleanup Plans
 
+**Difficulty:** Medium
+
 Every resident chooses whether to join a neighborhood cleanup or stay home. Count the decision plans satisfying every resident's minimum companion requirement.
 
 [https://codezym.com/question/378-count-valid-cleanup-plans](https://codezym.com/question/378-count-valid-cleanup-plans)
@@ -277,6 +340,8 @@ Every resident chooses whether to join a neighborhood cleanup or stay home. Coun
 
 
 ### 26. Most Common Lab Tool Pair
+
+**Difficulty:** Medium
 
 School records list the tools used in each science experiment. Find the pair of different tools used together in the greatest number of experiments.
 
@@ -287,6 +352,8 @@ School records list the tools used in each science experiment. Find the pair of 
 
 ### 27. Calculate Number Power Without Built-In Functions
 
+**Difficulty:** Medium
+
 Given a number and an integer exponent, calculate the number raised to that exponent without using a built-in power function.
 
 [https://codezym.com/question/380-calculate-number-power](https://codezym.com/question/380-calculate-number-power)
@@ -295,6 +362,8 @@ Given a number and an integer exponent, calculate the number raised to that expo
 
 
 ### 28. Find Combined Service Tags
+
+**Difficulty:** Medium
 
 Some service tags are made by joining two or more other tags from the same list. Find every tag that can be formed completely this way.
 
@@ -305,6 +374,8 @@ Some service tags are made by joining two or more other tags from the same list.
 
 ### 29. Maximum Score From Numbered Balls
 
+**Difficulty:** Medium
+
 Tubes contain consecutively numbered balls with the greatest number on top. Remove exactly the required number of balls to maximize the total printed score.
 
 [https://codezym.com/question/382-max-score-from-numbered-balls](https://codezym.com/question/382-max-score-from-numbered-balls)
@@ -313,6 +384,8 @@ Tubes contain consecutively numbered balls with the greatest number on top. Remo
 
 
 ### 30. Most Frequent Tags Across LinkedIn Connections
+
+**Difficulty:** Medium
 
 Starting from a member, find the most frequently used post tags among that member's direct connections and the connections of those people.
 
@@ -323,6 +396,8 @@ Starting from a member, find the most frequently used post tags among that membe
 
 ### 31. Complete All Baking Batches
 
+**Difficulty:** Medium
+
 Assign batches to ovens with enough heat; each use halves an oven's current heat. Determine whether every batch can be completed in each schedule.
 
 [https://codezym.com/question/384-complete-all-baking-batches](https://codezym.com/question/384-complete-all-baking-batches)
@@ -331,6 +406,8 @@ Assign batches to ovens with enough heat; each use halves an oven's current heat
 
 
 ### 32. Earliest Water Tank Target Time
+
+**Difficulty:** Medium
 
 Pumps operate during fixed minute ranges and add one liter per minute. Find the earliest time when the tank reaches its target amount.
 
@@ -341,6 +418,8 @@ Pumps operate during fixed minute ranges and add one liter per minute. Find the 
 
 ### 33. Bus Route Passenger Count Tracker
 
+**Difficulty:** Medium
+
 Store how many passengers boarded at each bus stop. Support corrections to recorded counts and total queries over any continuous range of stops.
 
 [https://codezym.com/question/386-bus-route-passenger-count-tracker](https://codezym.com/question/386-bus-route-passenger-count-tracker)
@@ -349,6 +428,8 @@ Store how many passengers boarded at each bus stop. Support corrections to recor
 
 
 ### 34. Candy Jar Pickup Score
+
+**Difficulty:** Medium
 
 Always pick from the fullest candy jar. Each turn scores the greatest count plus the smallest positive count before the selected jar decreases.
 
@@ -359,6 +440,8 @@ Always pick from the fullest candy jar. Each turn scores the greatest count plus
 
 ### 35. Most Frequent Training Partner Pair
 
+**Difficulty:** Medium
+
 Practice records contain comma-separated player IDs. Return the pair of players that attended the greatest number of sessions together.
 
 [https://codezym.com/question/388-most-frequent-training-pair-partner](https://codezym.com/question/388-most-frequent-training-pair-partner)
@@ -367,6 +450,8 @@ Practice records contain comma-separated player IDs. Return the pair of players 
 
 
 ### 36. Currency Conversion
+
+**Difficulty:** Medium
 
 Convert an amount through directed currency rates, possibly using intermediate currencies. Among all non-cyclic paths, return the maximum converted value.
 
