@@ -48,7 +48,7 @@ For the USA and other countries, direct applications through Amazon's jobs porta
 
 It is important to not loose hope. One person applied for winter internship but they found the OA very hard and struggled through it. However after lots of back and forth they were able to pass all tests. But then winter internship slots were filled and they were moved to summer. They received interview confirmation two months later.
 
-During one of the coding rounds they got a leetcode hard question. They struggled a lot and need help to solve it. But what worked in their favour is that they vocalized their entire thought process the way through along with any edge cases that came to mind. They eventually ended up receiving the offer.
+During one of the coding rounds they got a leetcode hard question. They struggled a lot and needed help from interviewer to solve it. But what worked in their favour is that they vocalized their entire thought process all the way through along with any edge cases that came to mind. They eventually ended up receiving the offer.
 Keep trying, eventually you will see the light at the end of tunnel.
 
 ---
