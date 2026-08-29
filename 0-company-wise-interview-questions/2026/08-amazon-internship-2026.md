@@ -2,56 +2,6 @@ Amazon Internship Preparation
 
 # Amazon Internship Interview Round DS & Algo Questions 2026
 
-This is a  preparation list for Amazon SDE and SDET internship coding rounds, along with a practical overview of the online assessment and interview process.
-
-Apart from the online assessment (OA), the internship process usually includes two DS & Algo interviews of around one hour each, together with behavioral questions.
-
-Some candidates think if you are not asked any behavioral questions then it means you did not do well and are already rejected. This is not entirely true, one candidate reported that they were not asked any behavioral questions during interview but still ended up receiving the internship offer 15 days later.
-
-
-Low Level Design questions are generally not asked for internship roles. However one candidate reported an elevator-system LLD question for SDET internship, but those cases appear to be exception rather than the norm.
-
---- 
-## Are you instead looking for these ?
-
-Amazon DS & Algo Questions for full-time SDE positions.
-
-[https://codezym.com/lld/amazon-dsa](https://codezym.com/lld/amazon-dsa)
-
-Amazon Low Level Design Questions
-
-[https://codezym.com/lld/amazon](https://codezym.com/lld/amazon)
-
-Complete Amazon Internship Question List
-
-[https://codezym.com/lld/amazon-intern](https://codezym.com/lld/amazon-intern)
-
-----
-
-**Online assessment:** the OA includes DSA and an AI-assisted coding question.
-
-For the AI-assisted coding round, you choose one repository. Options may include C++, Django, Spring Boot, ReactJS, Node.js, Ruby on Rails, and similar stacks. The interface provides a code editor and an AI assistant for project-related questions. You have 60 minutes to implement the required behavior and pass the test cases, usually around six. The assistant can help you search the project, locate files, and understand the codebase.
-
-This list includes coding-round questions reported for both SDE intern and SDET intern interviews.
-
----
-
-**For candidates in India:** Amazon HackOn can be an effective route to an internship call. Amazon may contact eligible participants who performed well in the coding round, not only the finalists. Strong performers may receive an AUTA interest form.
-
-Infact one person even reported that their team was eliminated in the very first round of HackOn in May 2025. But in july end he ended up receiving an email stating that he has been shortlisted for an Amazon Online Assessment based on his HackOn performance. Infact he gave his OA got shortlisted for interview, had his interview in september then got waitlisted and finally received SDE intern offer in last week of november.
-
-
-
-For the USA and other countries, direct applications through Amazon's jobs portal and employee referrals are the usual routes.
-
----
-
-It is important to not loose hope. One person applied for winter internship but they found the OA very hard and struggled through it. However after lots of back and forth they were able to pass all tests. But then winter internship slots were filled and they were moved to summer. They received interview confirmation two months later.
-
-During one of the coding rounds they got a leetcode hard question. They struggled a lot and needed help from interviewer to solve it. But what worked in their favour is that they vocalized their entire thought process all the way through along with any edge cases that came to mind. They eventually ended up receiving the offer.
-Keep trying, eventually you will see the light at the end of tunnel.
-
----
 
 
 ## LeetCode Questions
@@ -284,7 +234,27 @@ Convert an amount through directed currency rates, possibly using intermediate c
 
 [https://codezym.com/question/129-currency-conversion](https://codezym.com/question/129-currency-conversion)
 
+---
+
+## Are you instead looking for these ?
+
+Amazon DS & Algo Questions for full-time SDE positions.
+
+[https://codezym.com/lld/amazon-dsa](https://codezym.com/lld/amazon-dsa)
+
+Amazon Low Level Design Questions
+
+[https://codezym.com/lld/amazon](https://codezym.com/lld/amazon)
+
+Complete Amazon Internship Question List
+
+[https://codezym.com/lld/amazon-intern](https://codezym.com/lld/amazon-intern)
+
+----
+
+
 ## Thanks for reading.
+If this list was helpful then please give star to this repository.
 
 Wish you the best of luck with your Amazon internship preparation.
 
