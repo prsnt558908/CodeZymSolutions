@@ -4,47 +4,6 @@
 This list contains recently asked DSA questions in Amazon for SDE, SDET positions. It also includes questions from Bar Raiser rounds.
 
 
-Amazon hires (and fires) lots of people and this cycle keeps repeating.
-
-> Questions do repeat, hence it is better to solve Amazon tagged questions at least 2–3 times, rather than solving a lot of new questions just once.
-
-Doing questions multiple times will help you understand the patterns and when you see a question which is rephrased differently but has same solution, you will be able to do it.
-
-You will be frequently asked leadership principles in behavioral questions. So prepare your stories around them. There can be long period of silences between rounds.
-
-## Wait time Between Rounds
-
-Wait time is often the most frustrating part. No updates, no recruiter contact, just uncertainty.
-
-One person (SDE-1) got their OA results just after two days. But when first round was scheduled, their scheduled interviewer didn't join. After this there was 14 days of silence. After round 1 again 20 days of silence.
-
-After round 2, candidate thought he was rejected because he couldn’t solve one of the questions.
-
-35 days passed in complete silence after that. Out of desperation, he reached out to someone at Amazon on LinkedIn, asking if they could help him get an update from his recruiter.
-
-And that very same day, he finally got the update. Infact bar raiser was scheduled and he did very well in it. But 2 days after his interview, he received a **rejection email** from AUTA.
-
-**Surprisingly** a few days later his HR called asking for location preferences but didn't confirm the results. However offer arrived two days later.
-
-## Hints from Interviewer/Fumbles
-
-Many people fumble or may need some hint from interviewer. And its alright. One person was asked the below:
-
-- Longest Substring Without Repeating Characters
-- Longest Substring with At Most K Distinct Characters
-
-They did well on the first question but fumbled on the second. However they coded it up correctly in the end.
-
-They didn't receive any update after that and thought they were rejected. But they got the call 4 days later and another round was scheduled which was completely behavioral. They got selected the next day after that.
-
-## No Solution
-
-This can lead to rejection. But not always depending on how other rounds went.
-
-One person with 4 years of experience and interviewed for an SDE2 role. In one round they were not able to code the solution, just gave the approach. After the loops they were offered SDE-1. **Downleveled** but not a complete rejection.
-
-
-
 > You can also book LLD mock interview with me https://topmate.io/prashant_priyadarshi/665067
 
 
