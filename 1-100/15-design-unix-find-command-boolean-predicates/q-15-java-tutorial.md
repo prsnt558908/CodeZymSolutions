@@ -3,13 +3,43 @@
 #### Problem Statement
 [https://codezym.com/question/15-design-unix-find-command-boolean-predicates](https://codezym.com/question/15-design-unix-find-command-boolean-predicates)
 
-The whole problem fits into one idea: keep the files in memory, turn every search rule into a small object that can answer one question, "does this file qualify?", and then glue those objects together with AND, OR and AND NOT.
+The problem can be divided into two parts.
 
-Two design patterns do the work here. **Strategy** gives each search criteria its own tiny class, so adding a new rule later means writing one small class instead of editing a growing if-else block inside the finder.
+The first part is deciding whether one file matches one search rule.
 
-**Specification** lets two rule objects be wrapped into a bigger object that still answers the same yes or no question, so `r1 AND r2` is itself just another rule object.
+A rule like `1,/app/logs,5` means the file must be bigger than 5 MB and sit somewhere under `/app/logs`.
 
-The neat part is that both patterns share a single interface. That means a query of any length collapses into one object, and we can simply run it over every stored file once and sort whatever survives.
+A rule like `2,/app/logs,.log` means the name must end with `.log`.
+
+Every rule checks something different, but they all take the same input, one path and one size, and they all return yes or no.
+
+That is what makes the **Strategy** pattern fit here.
+
+Each rule becomes its own small class behind a common interface.
+
+The problem says new rules will be added later, for example a name-substring match. With this setup, adding a new rule means one new class plus one line to register it, and nothing inside existing code changes.
+
+The second part is combining the results.
+
+Running one rule over all the stored files gives a list of file paths which are selected using that rule. Running the next rule gives another list.
+
+- `AND` keeps the paths present in both lists.
+- `OR` keeps everything from either list.
+- `AND NOT` keeps the paths in the first list that are missing from the second.
+
+These three operators fit Strategy for the same reason the rules did. They all take the same input, two lists of paths, and they all return one merged list.
+
+So each operator also becomes a small class behind a common interface.
+
+The finder keeps two maps, one from rule id to its rule class and one from operator name to its merge class. Picking the right class is a lookup instead of a growing if-else ladder.
+
+The query then reduces to a plain loop: run the next rule, merge it into the running result, move on to the next operator.
+
+There is another well-known way to handle the boolean part, called the **Specification** pattern.
+
+Instead of merging result lists, it merges the rules themselves into one combined rule. That is the standard choice when business rules get combined with AND, OR and NOT, so it is worth knowing, and it is solution 3 below.
+
+For this problem it does not buy much. The expression here is a plain left to right chain with no brackets, so the extra flexibility never gets used.
 
 ---
 
@@ -31,7 +61,7 @@ ops   = ["AND", "OR", "AND NOT"]
 ((r1 AND r2) OR r3) AND NOT r4
 ```
 
-So `ops.size()` is always `rules.size() - 1`, and the shape of the expression is a chain that leans to the left.
+So `ops.size()` is always `rules.size() - 1`, and the expression is a chain that leans to the left.
 
 ### Four details that are easy to get wrong
 
@@ -118,21 +148,21 @@ This works, so as a first draft it is fine. The trouble starts when you look at 
 
 ### What is wrong with it
 
-**It is closed to extension.** The problem says clearly that new criteria will be added later, for example a name-substring match. With this code, every new criteria forces a change inside `matchRule`, a method that is already doing three jobs at once: parsing, matching, and collecting.
+**It is closed to extension.** The problem says clearly that new criteria will be added later, for example a name-substring match. Here, every new criteria forces a change inside `matchRule`, a method already doing three jobs at once: parsing, matching, and collecting.
 
-**`list.contains` is a linear scan.** An AND between two lists of `n` paths costs `n * n` string comparisons. With 2500 files and 1200 calls this adds up quickly for no good reason.
+**`list.contains` is a linear scan.** An AND between two lists of `n` paths costs `n * n` string comparisons. With 2500 files this adds up for no good reason.
 
 **OR needs a manual duplicate check.** Lists do not de-duplicate, so we hand-roll it with another `contains` call, which is the same slow scan again.
 
-**Intermediate lists pile up.** Every operator builds one more list, so a five rule query allocates five result lists plus four merged lists, all to produce one final answer.
+**The operators are hard-coded too.** Adding a fourth operator means another `else if` in the middle of `runQuery`.
 
 ---
 
 ## Fixing it in parts
 
-### Fix 1 : use a Set instead of a List
+### Fix 1 : swap the list for a set
 
-The merge step only ever asks "is this path in the other group?". That is exactly what a `HashSet` answers in constant time, and it also removes duplicates for free.
+The merge step only ever asks "is this path in the other group?". A `HashSet` answers that in constant time and removes duplicates for free.
 
 ```java
 Set<String> merged = new HashSet<>(result);
@@ -142,69 +172,53 @@ else if (op.equals("OR"))      merged.addAll(next);     // union
 else if (op.equals("AND NOT")) merged.removeAll(next);  // difference
 ```
 
-Already much better, but the extension problem is untouched.
+Faster and shorter, but both if-else ladders are still there.
 
-### Fix 2 : Strategy for the criteria
+### Fix 2 : Strategy for the search rules
 
-Instead of an if-else ladder, let every criteria be its own class behind a common interface.
+Let every criteria be its own class behind a common interface.
 
 ```java
-interface Spec {
-    boolean isSatisfiedBy(String path, int sizeMb);
+interface SearchCriteria {
+    boolean matches(String path, int sizeMb);
 }
 ```
 
-`MinSizeSpec` knows about sizes. `ExtensionSpec` knows about extensions. Neither one knows the other exists. Adding a name-substring rule tomorrow is a new class plus one line of registration, and `runQuery` never changes.
+`MinSizeCriteria` knows about sizes. `ExtensionCriteria` knows about extensions. Neither knows the other exists, and neither knows anything about AND or OR.
 
-To build the right object from a rule id we keep a small map from rule id to a builder, rather than a switch. A `switch` would have to be edited for every new rule, a map just gets one more entry.
+### Fix 3 : Strategy for the boolean operators
 
-### Fix 3 : Specification for the booleans
-
-Here is the step that makes everything click. A boolean combination of two criteria also answers "does this file qualify?", so it can implement the **same** `Spec` interface.
+The three lines from Fix 1 are three interchangeable algorithms over the same input, which is exactly what Strategy is for.
 
 ```java
-class AndSpec implements Spec {
-    private final Spec left, right;
-    public boolean isSatisfiedBy(String path, int sizeMb) {
-        return left.isSatisfiedBy(path, sizeMb) && right.isSatisfiedBy(path, sizeMb);
-    }
+interface CombineStrategy {
+    Set<String> combine(Set<String> left, Set<String> right);
 }
 ```
 
-Because `AndSpec` is itself a `Spec`, it can be the left child of the next operator. Folding the rules left to right gives us one object for the entire query.
-
-```
-r1  ->  And(r1, r2)  ->  Or(And(r1, r2), r3)  ->  AndNot(Or(And(r1, r2), r3), r4)
-```
-
-And this quietly deletes Fix 1 as well. There are no intermediate sets to merge any more, because there is nothing to merge. We hold one predicate, walk the file map once, and keep the paths that satisfy it.
-
-Set algebra and boolean logic agree perfectly here, which is why the swap is safe:
-
-| Operator | Set view | Predicate view |
-|----------|----------|----------------|
-| AND | intersection | `left && right` |
-| OR | union | `left \|\| right` |
-| AND NOT | difference | `left && !right` |
+`AndStrategy` intersects. `OrStrategy` unions. `AndNotStrategy` subtracts. Now both ladders are gone, replaced by two lookup maps, and `runQuery` shrinks to a loop that reads like the problem statement.
 
 ---
 
-## Solution 2 : Strategy plus Specification
+## Solution 2 : Two families of Strategy
 
 ### The pieces and why each one exists
 
-**`Spec` interface.** The single most important decision in this design. A leaf criteria and a boolean combination both answer the same yes or no question, so they share one type. That is what allows a query of any length to be represented as a single object.
+**`SearchCriteria` interface.** The first Strategy family. Each implementation holds its own configuration, a directory plus a size or an extension, and answers one question about one file.
 
-**`MinSizeSpec` and `ExtensionSpec`.** The Strategy classes. Each holds its own configuration, the directory plus a size or an extension, and knows nothing about queries, operators or the file store.
+**`CombineStrategy` interface.** The second Strategy family. Each implementation takes two sets of paths and returns a merged set. It never looks at a size or an extension, it only does set algebra.
 
-**`AndSpec`, `OrSpec`, `AndNotSpec`.** The Specification combiners. Each holds two children of type `Spec`, which is exactly what lets the tree grow to any depth.
+**`Map<String, CriteriaBuilder> criteriaBuilders`.** Rule id `"1"` maps to a lambda that builds a `MinSizeCriteria`. This is the single place that knows which id means what.
 
-**`Map<String, CriteriaBuilder> builders`.** A tiny factory. Rule id `"1"` maps to a lambda that builds a `MinSizeSpec`. This is the one place that knows which rule id means what, so it is the one place to touch when a new criteria arrives.
+**`Map<String, CombineStrategy> combineStrategies`.** Operator name maps to the merge algorithm. The symmetry with the map above is the nice part: a new rule is one entry in the first map, a new operator is one entry in the second.
 
-**`Map<String, Integer> files`.** Paths are unique by nature and a map key is unique by nature, so a map gives us de-duplication for free and makes a repeated `addFile` on the same path behave like an update. A list of file objects would need a scan for both.
+**`Map<String, Integer> files`.** Paths are unique by nature and a map key is unique by nature, so we get de-duplication for free, and a repeated `addFile` on the same path behaves like an update.
+
+**`Set<String>` for intermediate results.** Each rule produces a set, each operator merges two sets. Uniqueness is handled by the data structure rather than by hand.
 
 ### Final code
 
+This is the complete class and the one to submit.
 
 ```java
 import java.util.*;
@@ -213,96 +227,116 @@ import java.util.*;
  * In-memory version of the Unix "find" command.
  *
  * Storage  : path -> size in MB
- * Criteria : Strategy pattern, one small class per search rule
- * Booleans : Specification pattern, criteria are combined into one predicate tree
+ * Strategy : SearchCriteria, one class per search rule
+ * Strategy : CombineStrategy, one class per boolean predicate
  */
 public class FileFinder {
 
-    /**
-     * One interface serves both roles.
-     * A leaf answers a single criteria, a combiner answers a boolean mix of two others.
-     */
-    private interface Spec {
-        boolean isSatisfiedBy(String path, int sizeMb);
+    /* =====================================================================
+     * STRATEGY 1 : search criteria
+     * "Does this one file match this one rule?"
+     * ===================================================================== */
+
+    private interface SearchCriteria {
+        boolean matches(String path, int sizeMb);
     }
 
-    /** Criteria 1 -> files strictly larger than minSizeMb, anywhere under dir. */
-    private static class MinSizeSpec implements Spec {
+    /** Rule 1 -> files strictly larger than minSizeMb, anywhere under dir. */
+    private static class MinSizeCriteria implements SearchCriteria {
         private final String dir;
         private final int minSizeMb;
 
-        MinSizeSpec(String dir, int minSizeMb) {
+        MinSizeCriteria(String dir, int minSizeMb) {
             this.dir = normalizeDir(dir);
             this.minSizeMb = minSizeMb;
         }
 
-        public boolean isSatisfiedBy(String path, int sizeMb) {
+        @Override
+        public boolean matches(String path, int sizeMb) {
             return sizeMb > minSizeMb && isUnder(path, dir);
         }
     }
 
-    /** Criteria 2 -> files whose name ends with the given extension, anywhere under dir. */
-    private static class ExtensionSpec implements Spec {
+    /** Rule 2 -> files whose name ends with the given extension, anywhere under dir. */
+    private static class ExtensionCriteria implements SearchCriteria {
         private final String dir;
         private final String ext;
 
-        ExtensionSpec(String dir, String ext) {
+        ExtensionCriteria(String dir, String ext) {
             this.dir = normalizeDir(dir);
             this.ext = ext;
         }
 
-        public boolean isSatisfiedBy(String path, int sizeMb) {
+        @Override
+        public boolean matches(String path, int sizeMb) {
             return isUnder(path, dir) && fileName(path).endsWith(ext);
         }
     }
 
-    /** AND -> the file must satisfy both sides. Same as set intersection. */
-    private static class AndSpec implements Spec {
-        private final Spec left, right;
+    /* =====================================================================
+     * STRATEGY 2 : boolean predicates
+     * "Given two result sets, how do I merge them into one?"
+     * ===================================================================== */
 
-        AndSpec(Spec left, Spec right) { this.left = left; this.right = right; }
+    private interface CombineStrategy {
+        Set<String> combine(Set<String> left, Set<String> right);
+    }
 
-        public boolean isSatisfiedBy(String path, int sizeMb) {
-            return left.isSatisfiedBy(path, sizeMb) && right.isSatisfiedBy(path, sizeMb);
+    /** AND -> keep only what is in both sets. */
+    private static class AndStrategy implements CombineStrategy {
+        @Override
+        public Set<String> combine(Set<String> left, Set<String> right) {
+            Set<String> merged = new HashSet<>(left);
+            merged.retainAll(right);
+            return merged;
         }
     }
 
-    /** OR -> the file must satisfy at least one side. Same as set union. */
-    private static class OrSpec implements Spec {
-        private final Spec left, right;
-
-        OrSpec(Spec left, Spec right) { this.left = left; this.right = right; }
-
-        public boolean isSatisfiedBy(String path, int sizeMb) {
-            return left.isSatisfiedBy(path, sizeMb) || right.isSatisfiedBy(path, sizeMb);
+    /** OR -> keep everything from both sets, duplicates collapse on their own. */
+    private static class OrStrategy implements CombineStrategy {
+        @Override
+        public Set<String> combine(Set<String> left, Set<String> right) {
+            Set<String> merged = new HashSet<>(left);
+            merged.addAll(right);
+            return merged;
         }
     }
 
-    /** AND NOT -> in the left side but not in the right side. Same as set difference. */
-    private static class AndNotSpec implements Spec {
-        private final Spec left, right;
-
-        AndNotSpec(Spec left, Spec right) { this.left = left; this.right = right; }
-
-        public boolean isSatisfiedBy(String path, int sizeMb) {
-            return left.isSatisfiedBy(path, sizeMb) && !right.isSatisfiedBy(path, sizeMb);
+    /** AND NOT -> keep what is in the left set but not in the right one. */
+    private static class AndNotStrategy implements CombineStrategy {
+        @Override
+        public Set<String> combine(Set<String> left, Set<String> right) {
+            Set<String> merged = new HashSet<>(left);
+            merged.removeAll(right);
+            return merged;
         }
     }
 
-    /** Turns the comma separated parts of a rule string into a criteria object. */
+    /* =====================================================================
+     * FileFinder itself
+     * ===================================================================== */
+
+    /** Builds a criteria object out of the parts of a rule string. */
     private interface CriteriaBuilder {
-        Spec build(String[] parts);
+        SearchCriteria build(String[] parts);
     }
 
-    /** ruleId -> builder. Adding a new criteria later is one extra entry here. */
-    private final Map<String, CriteriaBuilder> builders = new HashMap<>();
+    /** ruleId -> builder. A new search rule is one extra entry here. */
+    private final Map<String, CriteriaBuilder> criteriaBuilders = new HashMap<>();
+
+    /** operator name -> strategy. A new boolean predicate is one extra entry here. */
+    private final Map<String, CombineStrategy> combineStrategies = new HashMap<>();
 
     /** path -> size in MB. A repeated path simply overwrites the old size. */
     private final Map<String, Integer> files = new HashMap<>();
 
     public FileFinder() {
-        builders.put("1", parts -> new MinSizeSpec(parts[1], Integer.parseInt(parts[2].trim())));
-        builders.put("2", parts -> new ExtensionSpec(parts[1], parts[2].trim()));
+        criteriaBuilders.put("1", parts -> new MinSizeCriteria(parts[1], Integer.parseInt(parts[2].trim())));
+        criteriaBuilders.put("2", parts -> new ExtensionCriteria(parts[1], parts[2].trim()));
+
+        combineStrategies.put("AND", new AndStrategy());
+        combineStrategies.put("OR", new OrStrategy());
+        combineStrategies.put("AND NOT", new AndNotStrategy());
     }
 
     public void addFile(String path, int sizeMb) {
@@ -310,47 +344,49 @@ public class FileFinder {
     }
 
     public List<String> runQuery(List<String> rules, List<String> ops) {
-        List<String> result = new ArrayList<>();
-        if (rules == null || rules.isEmpty()) return result;
+        if (rules == null || rules.isEmpty()) return new ArrayList<>();
 
-        // Fold the rules left to right into a single specification tree.
-        Spec query = buildCriteria(rules.get(0));
+        // Start with the files matching the first rule.
+        Set<String> result = runRule(rules.get(0));
+
+        // Then apply one operator at a time, strictly left to right.
         for (int i = 0; i + 1 < rules.size() && i < ops.size(); i++) {
-            Spec next = buildCriteria(rules.get(i + 1));
-            query = combine(query, next, ops.get(i).trim());
+            Set<String> next = runRule(rules.get(i + 1));
+            CombineStrategy strategy = combineStrategies.get(ops.get(i).trim());
+            if (strategy == null) throw new IllegalArgumentException("Unknown operator: " + ops.get(i));
+            result = strategy.combine(result, next);
         }
 
-        // One pass over the stored files, keys of a map are already unique.
-        for (Map.Entry<String, Integer> file : files.entrySet()) {
-            if (query.isSatisfiedBy(file.getKey(), file.getValue())) result.add(file.getKey());
-        }
-        Collections.sort(result);
-        return result;
+        // A set is already unique, we only need the ordering.
+        List<String> sorted = new ArrayList<>(result);
+        Collections.sort(sorted);
+        return sorted;
     }
 
-    /** "2,/docs,.xml" -> ExtensionSpec("/docs", ".xml") */
-    private Spec buildCriteria(String rule) {
+    /** Runs one rule against every stored file and collects the matching paths. */
+    private Set<String> runRule(String rule) {
         String[] parts = rule.split(",");
-        CriteriaBuilder builder = builders.get(parts[0].trim());
+        CriteriaBuilder builder = criteriaBuilders.get(parts[0].trim());
         if (builder == null) throw new IllegalArgumentException("Unknown rule id: " + parts[0]);
-        return builder.build(parts);
+
+        SearchCriteria criteria = builder.build(parts);
+        Set<String> matched = new HashSet<>();
+        for (Map.Entry<String, Integer> file : files.entrySet()) {
+            if (criteria.matches(file.getKey(), file.getValue())) matched.add(file.getKey());
+        }
+        return matched;
     }
 
-    private Spec combine(Spec left, Spec right, String op) {
-        if (op.equals("AND")) return new AndSpec(left, right);
-        if (op.equals("OR")) return new OrSpec(left, right);
-        if (op.equals("AND NOT")) return new AndNotSpec(left, right);
-        throw new IllegalArgumentException("Unknown operator: " + op);
-    }
+    /* ---------------- small shared helpers ---------------- */
 
-    /** Drops trailing slashes so that "/docs" and "/docs/" behave the same. Root becomes "". */
+    /** Drops trailing slashes so "/docs" and "/docs/" behave the same. Root becomes "". */
     private static String normalizeDir(String dir) {
         String d = dir.trim();
         while (d.length() > 1 && d.endsWith("/")) d = d.substring(0, d.length() - 1);
         return d.equals("/") ? "" : d;
     }
 
-    /** Recursive containment. "/docs" matches "/docs/a.xml" but never "/docsx/a.xml". */
+    /** Recursive containment. Root matches everything, "/docs" never matches "/docsx/a.xml". */
     private static boolean isUnder(String path, String normalizedDir) {
         return normalizedDir.isEmpty() || path.startsWith(normalizedDir + "/");
     }
@@ -362,39 +398,280 @@ public class FileFinder {
 }
 ```
 
-### Adding a new criteria later
+Each combiner copies into a fresh `HashSet` rather than mutating `left`. Calling `retainAll` on the running result directly would also work here, but copying means a strategy can never corrupt a set its caller still holds.
 
-Say we now want rule 3, a name-substring match. The entire change is this.
+### Adding a new criteria, or a new operator
+
+The two extension points are symmetric, and neither touches `runQuery`.
+
+A new search rule:
 
 ```java
-private static class NameContainsSpec implements Spec {
+private static class NameContainsCriteria implements SearchCriteria {
     private final String dir, needle;
 
-    NameContainsSpec(String dir, String needle) {
+    NameContainsCriteria(String dir, String needle) {
         this.dir = normalizeDir(dir);
         this.needle = needle;
     }
 
-    public boolean isSatisfiedBy(String path, int sizeMb) {
+    @Override
+    public boolean matches(String path, int sizeMb) {
         return isUnder(path, dir) && fileName(path).contains(needle);
     }
 }
 
-// inside the constructor
-builders.put("3", parts -> new NameContainsSpec(parts[1], parts[2].trim()));
+// in the constructor
+criteriaBuilders.put("3", parts -> new NameContainsCriteria(parts[1], parts[2].trim()));
 ```
 
-`runQuery` is untouched. So is every existing criteria. That is the payoff of Strategy, and it is exactly what the problem statement asks for when it says the design must allow adding new criteria later.
+A new boolean operator, say `XOR`, meaning the file matched exactly one of the two rules:
+
+```java
+private static class XorStrategy implements CombineStrategy {
+    @Override
+    public Set<String> combine(Set<String> left, Set<String> right) {
+        Set<String> both = new HashSet<>(left);
+        both.retainAll(right);
+
+        Set<String> merged = new HashSet<>(left);
+        merged.addAll(right);
+        merged.removeAll(both);
+        return merged;
+    }
+}
+
+// in the constructor
+combineStrategies.put("XOR", new XorStrategy());
+```
+
+That is the payoff of Strategy, and it is what the problem statement is asking for when it says the design must allow adding new criteria later.
 
 ---
 
-## Why Strategy and Specification, and not something else
+## Solution 3 : Specification pattern
 
-**Interpreter is the closest rival.** We are, after all, evaluating an expression. Interpreter earns its keep when there is a real grammar to handle: nested brackets, operator precedence, a tokenizer, a parse step. Our expression has none of that, it is a flat chain evaluated left to right. Adopting Interpreter would mean writing grammar and parsing machinery that never gets used, to reach the same tree that three small Specification classes give us directly.
+Solution 2 combines **results**. The Specification pattern combines **rules** instead, and it is the usual way business rules get composed with boolean logic in real systems, so it is worth seeing.
 
-**Chain of Responsibility sounds right but does not fit.** The phrase "pass each file through a chain of filters" makes it tempting. The problem is that in Chain of Responsibility each handler either handles the request or forwards it, and the chain stops at the first handler that takes ownership. That can model a run of ANDs, but it has no way to express OR or AND NOT, where both sides must be consulted before you can decide. If you patch it so that handlers return booleans and the caller combines them, you have rebuilt Specification with extra ceremony.
+The idea: a boolean combination of two rules is itself a rule. `AndSpecification(a, b)` answers the same "does this file qualify?" question that `a` and `b` answer, so it can be passed anywhere a rule is expected. Folding left to right builds one object for the whole query.
 
-One pattern we do get for free is **Composite**. `AndSpec`, `OrSpec` and `AndNotSpec` each hold children of their own interface type, which is the Composite shape. Specification is Composite applied to booleans, so there is nothing extra to add.
+```
+r1  ->  And(r1, r2)  ->  Or(And(r1, r2), r3)  ->  AndNot(Or(And(r1, r2), r3), r4)
+```
+
+Then a single pass over the file map keeps whatever satisfies that one object. No intermediate sets are built at all.
+
+The search criteria classes stay exactly as they were. Only the boolean layer changes, plus one small adapter that lets a criteria sit as a leaf of the tree.
+
+```java
+import java.util.*;
+
+/**
+ * In-memory version of the Unix "find" command.
+ *
+ * Storage       : path -> size in MB
+ * Strategy      : SearchCriteria, one class per search rule
+ * Specification : boolean expression built from those criteria
+ */
+public class FileFinder {
+
+    /* =====================================================================
+     * STRATEGY : search criteria, unchanged from solution 2
+     * ===================================================================== */
+
+    private interface SearchCriteria {
+        boolean matches(String path, int sizeMb);
+    }
+
+    /** Rule 1 -> files strictly larger than minSizeMb, anywhere under dir. */
+    private static class MinSizeCriteria implements SearchCriteria {
+        private final String dir;
+        private final int minSizeMb;
+
+        MinSizeCriteria(String dir, int minSizeMb) {
+            this.dir = normalizeDir(dir);
+            this.minSizeMb = minSizeMb;
+        }
+
+        @Override
+        public boolean matches(String path, int sizeMb) {
+            return sizeMb > minSizeMb && isUnder(path, dir);
+        }
+    }
+
+    /** Rule 2 -> files whose name ends with the given extension, anywhere under dir. */
+    private static class ExtensionCriteria implements SearchCriteria {
+        private final String dir;
+        private final String ext;
+
+        ExtensionCriteria(String dir, String ext) {
+            this.dir = normalizeDir(dir);
+            this.ext = ext;
+        }
+
+        @Override
+        public boolean matches(String path, int sizeMb) {
+            return isUnder(path, dir) && fileName(path).endsWith(ext);
+        }
+    }
+
+    /* =====================================================================
+     * SPECIFICATION : a boolean expression over one file
+     * ===================================================================== */
+
+    private interface Specification {
+        boolean isSatisfiedBy(String path, int sizeMb);
+    }
+
+    /** Leaf. Lets one criteria sit inside a specification tree. */
+    private static class CriteriaSpecification implements Specification {
+        private final SearchCriteria criteria;
+
+        CriteriaSpecification(SearchCriteria criteria) {
+            this.criteria = criteria;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(String path, int sizeMb) {
+            return criteria.matches(path, sizeMb);
+        }
+    }
+
+    /** AND -> both sides must hold. */
+    private static class AndSpecification implements Specification {
+        private final Specification left, right;
+
+        AndSpecification(Specification left, Specification right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(String path, int sizeMb) {
+            return left.isSatisfiedBy(path, sizeMb) && right.isSatisfiedBy(path, sizeMb);
+        }
+    }
+
+    /** OR -> at least one side must hold. */
+    private static class OrSpecification implements Specification {
+        private final Specification left, right;
+
+        OrSpecification(Specification left, Specification right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(String path, int sizeMb) {
+            return left.isSatisfiedBy(path, sizeMb) || right.isSatisfiedBy(path, sizeMb);
+        }
+    }
+
+    /** AND NOT -> left must hold and right must not. */
+    private static class AndNotSpecification implements Specification {
+        private final Specification left, right;
+
+        AndNotSpecification(Specification left, Specification right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        @Override
+        public boolean isSatisfiedBy(String path, int sizeMb) {
+            return left.isSatisfiedBy(path, sizeMb) && !right.isSatisfiedBy(path, sizeMb);
+        }
+    }
+
+    /* =====================================================================
+     * FileFinder itself
+     * ===================================================================== */
+
+    private interface CriteriaBuilder {
+        SearchCriteria build(String[] parts);
+    }
+
+    private final Map<String, CriteriaBuilder> criteriaBuilders = new HashMap<>();
+    private final Map<String, Integer> files = new HashMap<>();
+
+    public FileFinder() {
+        criteriaBuilders.put("1", parts -> new MinSizeCriteria(parts[1], Integer.parseInt(parts[2].trim())));
+        criteriaBuilders.put("2", parts -> new ExtensionCriteria(parts[1], parts[2].trim()));
+    }
+
+    public void addFile(String path, int sizeMb) {
+        files.put(path.trim(), sizeMb);
+    }
+
+    public List<String> runQuery(List<String> rules, List<String> ops) {
+        List<String> result = new ArrayList<>();
+        if (rules == null || rules.isEmpty()) return result;
+
+        // Fold the rules left to right into one specification tree.
+        Specification query = toSpecification(rules.get(0));
+        for (int i = 0; i + 1 < rules.size() && i < ops.size(); i++) {
+            Specification next = toSpecification(rules.get(i + 1));
+            query = combine(query, next, ops.get(i).trim());
+        }
+
+        // One pass over the stored files, keys of a map are already unique.
+        for (Map.Entry<String, Integer> file : files.entrySet()) {
+            if (query.isSatisfiedBy(file.getKey(), file.getValue())) result.add(file.getKey());
+        }
+        Collections.sort(result);
+        return result;
+    }
+
+    /** "2,/docs,.xml" -> ExtensionCriteria, wrapped as a leaf specification. */
+    private Specification toSpecification(String rule) {
+        String[] parts = rule.split(",");
+        CriteriaBuilder builder = criteriaBuilders.get(parts[0].trim());
+        if (builder == null) throw new IllegalArgumentException("Unknown rule id: " + parts[0]);
+        return new CriteriaSpecification(builder.build(parts));
+    }
+
+    private Specification combine(Specification left, Specification right, String op) {
+        if (op.equals("AND")) return new AndSpecification(left, right);
+        if (op.equals("OR")) return new OrSpecification(left, right);
+        if (op.equals("AND NOT")) return new AndNotSpecification(left, right);
+        throw new IllegalArgumentException("Unknown operator: " + op);
+    }
+
+    /* ---------------- small shared helpers ---------------- */
+
+    /** Drops trailing slashes so "/docs" and "/docs/" behave the same. Root becomes "". */
+    private static String normalizeDir(String dir) {
+        String d = dir.trim();
+        while (d.length() > 1 && d.endsWith("/")) d = d.substring(0, d.length() - 1);
+        return d.equals("/") ? "" : d;
+    }
+
+    /** Recursive containment. Root matches everything, "/docs" never matches "/docsx/a.xml". */
+    private static boolean isUnder(String path, String normalizedDir) {
+        return normalizedDir.isEmpty() || path.startsWith(normalizedDir + "/");
+    }
+
+    private static String fileName(String path) {
+        int slash = path.lastIndexOf('/');
+        return slash < 0 ? path : path.substring(slash + 1);
+    }
+}
+```
+
+### When Specification earns its keep, and why not here
+
+Specification shines when the boolean expression is **nested or reused**. Think of `(premium OR longTenure) AND NOT fraudFlagged` in a pricing engine. A composite is itself a rule, so it can be stored in a field, passed to another service, reused across requests, or nested to any depth. Set combining cannot do that, because a set of results is tied to one moment and one data set.
+
+This problem has none of those needs. The expression is a flat chain with no brackets, it is thrown away at the end of the call, and nothing is reused. So the tree is paying for flexibility that never gets used, and it charges an extra adapter class for it.
+
+That is why solution 2 is the one to reach for here. Solution 3 is the design you want the moment brackets or reusable rules enter the picture.
+
+---
+
+## Why not Interpreter or Chain of Responsibility
+
+**Interpreter** is the closest rival to solution 3, because we are evaluating an expression. It earns its keep when there is a real grammar to handle: nested brackets, operator precedence, a tokenizer, a parse step. Our expression has none of that. Adopting Interpreter would mean writing grammar and parsing machinery that never gets used.
+
+**Chain of Responsibility** sounds right at first, since "pass each file through a chain of filters" is a tempting description. The problem is that in Chain of Responsibility each handler either handles the request or forwards it, and the chain stops at the first handler that takes ownership. That can model a run of ANDs, but it cannot express OR or AND NOT, where both sides must be consulted before deciding. Patch it so handlers return booleans and the caller combines them, and you have rebuilt Specification with extra ceremony.
 
 ---
 
@@ -402,8 +679,10 @@ One pattern we do get for free is **Composite**. `AndSpec`, `OrSpec` and `AndNot
 
 Let `F` be the number of stored files and `R` the number of rules in a query.
 
-- `addFile` is `O(1)`, a single map write.
-- `runQuery` builds the tree in `O(R)`, then does one pass over `F` files. Each file walks at most `2R - 1` nodes, and `&&` and `||` short circuit, so it is usually far less. That gives `O(F * R)` plus `O(K log K)` for sorting `K` results.
-- Memory is `O(F)` for the file map plus `O(R)` for the query tree, which is discarded after the call.
+**Solution 1, brute force.** Each merge uses `list.contains`, a linear scan, so a single merge can cost `F * F` comparisons and the query lands at `O(R * F * F)`.
 
-The brute force version is genuinely worse, not just uglier. Each operator merges two lists using `list.contains`, which is a linear scan, so a single merge can cost `F * F` comparisons and the whole query lands at `O(R * F * F)`. Switching to a set drops it back to `O(F * R)`, and the specification tree reaches the same bound while allocating no intermediate collection at all.
+**Solution 2, combine strategies.** Each rule scans all files once, `O(F * R)`, and each merge is a set operation costing `O(F)`. Total `O(F * R)` plus `O(K log K)` to sort `K` results.
+
+**Solution 3, specification.** Same `O(F * R)`, but it short-circuits per file and allocates no intermediate sets.
+
+Memory is `O(F)` for the file map in every version, plus `O(F)` for the intermediate sets in solution 2 or `O(R)` for the tree in solution 3.

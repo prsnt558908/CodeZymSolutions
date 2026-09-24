@@ -3,13 +3,43 @@
 #### Problem Statement
 [https://codezym.com/question/15-design-unix-find-command-boolean-predicates](https://codezym.com/question/15-design-unix-find-command-boolean-predicates)
 
-The whole problem fits into one idea: keep the files in memory, turn every search rule into a small object that can answer one question, "does this file qualify?", and then glue those objects together with AND, OR and AND NOT.
+The problem can be divided into two parts.
 
-Two design patterns do the work here. **Strategy** gives each search criteria its own tiny class, so adding a new rule later means writing one small class instead of editing a growing if-else block inside the finder.
+The first part is deciding whether one file matches one search rule.
 
-**Specification** lets two rule objects be wrapped into a bigger object that still answers the same yes or no question, so `r1 AND r2` is itself just another rule object.
+A rule like `1,/app/logs,5` means the file must be bigger than 5 MB and sit somewhere under `/app/logs`.
 
-The neat part is that both patterns share a single interface. That means a query of any length collapses into one object, and we can simply run it over every stored file once and sort whatever survives.
+A rule like `2,/app/logs,.log` means the name must end with `.log`.
+
+Every rule checks something different, but they all take the same input, one path and one size, and they all return yes or no.
+
+That is what makes the **Strategy** pattern fit here.
+
+Each rule becomes its own small class behind a common interface.
+
+The problem says new rules will be added later, for example a name-substring match. With this setup, adding a new rule means one new class plus one line to register it, and nothing inside existing code changes.
+
+The second part is combining the results.
+
+Running one rule over all the stored files gives a list of file paths which are selected using that rule. Running the next rule gives another list.
+
+- `AND` keeps the paths present in both lists.
+- `OR` keeps everything from either list.
+- `AND NOT` keeps the paths in the first list that are missing from the second.
+
+These three operators fit Strategy for the same reason the rules did. They all take the same input, two lists of paths, and they all return one merged list.
+
+So each operator also becomes a small class behind a common interface.
+
+The finder keeps two dictionaries, one from rule id to its rule class and one from operator name to its merge class. Picking the right class is a lookup instead of a growing if-else ladder.
+
+The query then reduces to a plain loop: run the next rule, merge it into the running result, move on to the next operator.
+
+There is another well-known way to handle the boolean part, called the **Specification** pattern.
+
+Instead of merging result lists, it merges the rules themselves into one combined rule. That is the standard choice when business rules get combined with AND, OR and NOT, so it is worth knowing, and it is solution 3 below.
+
+For this problem it does not buy much. The expression here is a plain left to right chain with no brackets, so the extra flexibility never gets used.
 
 ---
 
@@ -31,7 +61,7 @@ ops   = ["AND", "OR", "AND NOT"]
 ((r1 AND r2) OR r3) AND NOT r4
 ```
 
-So `len(ops)` is always `len(rules) - 1`, and the shape of the expression is a chain that leans to the left.
+So `len(ops)` is always `len(rules) - 1`, and the expression is a chain that leans to the left.
 
 ### Four details that are easy to get wrong
 
@@ -113,103 +143,85 @@ This works, so as a first draft it is fine. The trouble starts when you look at 
 
 ### What is wrong with it
 
-**It is closed to extension.** The problem says clearly that new criteria will be added later, for example a name-substring match. With this code, every new criteria forces a change inside `_match_rule`, a method that is already doing three jobs at once: parsing, matching, and collecting.
+**It is closed to extension.** The problem says clearly that new criteria will be added later, for example a name-substring match. Here, every new criteria forces a change inside `_match_rule`, a method already doing three jobs at once: parsing, matching, and collecting.
 
-**`p in list` is a linear scan.** An AND between two lists of `n` paths costs `n * n` string comparisons. With 2500 files and 1200 calls this adds up quickly for no good reason.
+**`p in list` is a linear scan.** An AND between two lists of `n` paths costs `n * n` string comparisons. With 2500 files this adds up for no good reason.
 
 **OR needs a manual duplicate check.** Lists do not de-duplicate, so we hand-roll it with another `in` check, which is the same slow scan again.
 
-**Intermediate lists pile up.** Every operator builds one more list, so a five rule query allocates five result lists plus four merged lists, all to produce one final answer.
+**The operators are hard-coded too.** Adding a fourth operator means another `elif` in the middle of `runQuery`.
 
 ---
 
 ## Fixing it in parts
 
-### Fix 1 : use a set instead of a list
+### Fix 1 : swap the list for a set
 
-The merge step only ever asks "is this path in the other group?". That is exactly what a `set` answers in constant time, and it also removes duplicates for free.
+The merge step only ever asks "is this path in the other group?". A `set` answers that in constant time and removes duplicates for free.
 
 ```python
-merged = set(result)
-
 if op == "AND":
-    merged &= set(nxt)      # intersection
+    merged = left & right      # intersection
 elif op == "OR":
-    merged |= set(nxt)      # union
+    merged = left | right      # union
 elif op == "AND NOT":
-    merged -= set(nxt)      # difference
+    merged = left - right      # difference
 ```
 
-Already much better, but the extension problem is untouched.
+Faster and shorter, but both if-else ladders are still there.
 
-### Fix 2 : Strategy for the criteria
+### Fix 2 : Strategy for the search rules
 
-Instead of an if-else ladder, let every criteria be its own class behind a common interface.
+Let every criteria be its own class behind a common interface.
 
 ```python
-class Spec:
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+class SearchCriteria:
+    def matches(self, path: str, size_mb: int) -> bool:
         raise NotImplementedError
 ```
 
-`MinSizeSpec` knows about sizes. `ExtensionSpec` knows about extensions. Neither one knows the other exists. Adding a name-substring rule tomorrow is a new class plus one line of registration, and `runQuery` never changes.
+`MinSizeCriteria` knows about sizes. `ExtensionCriteria` knows about extensions. Neither knows the other exists, and neither knows anything about AND or OR.
 
-To build the right object from a rule id we keep a small dictionary from rule id to a builder, rather than an if-else chain. A chain would have to be edited for every new rule, a dictionary just gets one more entry.
+### Fix 3 : Strategy for the boolean operators
 
-### Fix 3 : Specification for the booleans
-
-Here is the step that makes everything click. A boolean combination of two criteria also answers "does this file qualify?", so it can implement the **same** `Spec` interface.
+The three lines from Fix 1 are three interchangeable algorithms over the same input, which is exactly what Strategy is for.
 
 ```python
-class AndSpec(Spec):
-    def __init__(self, left: Spec, right: Spec):
-        self.left, self.right = left, right
-
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
-        return self.left.is_satisfied_by(path, size_mb) and self.right.is_satisfied_by(path, size_mb)
+class CombineStrategy:
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        raise NotImplementedError
 ```
 
-Because `AndSpec` is itself a `Spec`, it can be the left child of the next operator. Folding the rules left to right gives us one object for the entire query.
-
-```
-r1  ->  And(r1, r2)  ->  Or(And(r1, r2), r3)  ->  AndNot(Or(And(r1, r2), r3), r4)
-```
-
-And this quietly deletes Fix 1 as well. There are no intermediate sets to merge any more, because there is nothing to merge. We hold one predicate, walk the file dictionary once, and keep the paths that satisfy it.
-
-Set algebra and boolean logic agree perfectly here, which is why the swap is safe:
-
-| Operator | Set view | Predicate view |
-|----------|----------|----------------|
-| AND | intersection | `left and right` |
-| OR | union | `left or right` |
-| AND NOT | difference | `left and not right` |
+`AndStrategy` intersects. `OrStrategy` unions. `AndNotStrategy` subtracts. Now both ladders are gone, replaced by two lookup dictionaries, and `runQuery` shrinks to a loop that reads like the problem statement.
 
 ---
 
-## Solution 2 : Strategy plus Specification
+## Solution 2 : Two families of Strategy
 
 ### The pieces and why each one exists
 
-**`Spec` base class.** The single most important decision in this design. A leaf criteria and a boolean combination both answer the same yes or no question, so they share one type. That is what allows a query of any length to be represented as a single object.
+**`SearchCriteria` base class.** The first Strategy family. Each implementation holds its own configuration, a directory plus a size or an extension, and answers one question about one file.
 
-**`MinSizeSpec` and `ExtensionSpec`.** The Strategy classes. Each holds its own configuration, the directory plus a size or an extension, and knows nothing about queries, operators or the file store.
+**`CombineStrategy` base class.** The second Strategy family. Each implementation takes two sets of paths and returns a merged set. It never looks at a size or an extension, it only does set algebra.
 
-**`AndSpec`, `OrSpec`, `AndNotSpec`.** The Specification combiners. Each holds two children of type `Spec`, which is exactly what lets the tree grow to any depth.
+**`self.criteria_builders`.** Rule id `"1"` maps to a lambda that builds a `MinSizeCriteria`. This is the single place that knows which id means what.
 
-**`self.builders` dictionary.** A tiny factory. Rule id `"1"` maps to a lambda that builds a `MinSizeSpec`. This is the one place that knows which rule id means what, so it is the one place to touch when a new criteria arrives.
+**`self.combine_strategies`.** Operator name maps to the merge algorithm. The symmetry with the dictionary above is the nice part: a new rule is one entry in the first, a new operator is one entry in the second.
 
-**`self.files` dictionary.** Paths are unique by nature and a dictionary key is unique by nature, so it gives us de-duplication for free and makes a repeated `addFile` on the same path behave like an update. A list of file objects would need a scan for both.
+**`self.files` dictionary.** Paths are unique by nature and a dictionary key is unique by nature, so we get de-duplication for free, and a repeated `addFile` on the same path behaves like an update.
+
+**`set` for intermediate results.** Each rule produces a set, each operator merges two sets. Uniqueness is handled by the data structure rather than by hand.
 
 ### Final code
 
+This is the complete file and the one to submit.
 
 ```python
-from typing import List, Dict, Callable
+from typing import List, Dict, Set, Callable
 
 
 def normalize_dir(directory: str) -> str:
-    """Drops trailing slashes so that "/docs" and "/docs/" behave the same. Root becomes ""."""
+    """Drops trailing slashes so "/docs" and "/docs/" behave the same. Root becomes ""."""
     d = directory.strip()
     while len(d) > 1 and d.endswith("/"):
         d = d[:-1]
@@ -217,7 +229,7 @@ def normalize_dir(directory: str) -> str:
 
 
 def is_under(path: str, normalized_dir: str) -> bool:
-    """Recursive containment. "/docs" matches "/docs/a.xml" but never "/docsx/a.xml"."""
+    """Recursive containment. Root matches everything, "/docs" never matches "/docsx/a.xml"."""
     return normalized_dir == "" or path.startswith(normalized_dir + "/")
 
 
@@ -225,62 +237,263 @@ def file_name(path: str) -> str:
     return path.rsplit("/", 1)[-1]
 
 
-class Spec:
-    """One interface for both roles.
+# =====================================================================
+# STRATEGY 1 : search criteria
+# "Does this one file match this one rule?"
+# =====================================================================
 
-    A leaf answers a single criteria, a combiner answers a boolean mix of two others.
-    """
-
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+class SearchCriteria:
+    def matches(self, path: str, size_mb: int) -> bool:
         raise NotImplementedError
 
 
-class MinSizeSpec(Spec):
-    """Criteria 1 -> files strictly larger than min_size_mb, anywhere under directory."""
+class MinSizeCriteria(SearchCriteria):
+    """Rule 1 -> files strictly larger than min_size_mb, anywhere under directory."""
 
     def __init__(self, directory: str, min_size_mb: int):
         self.dir = normalize_dir(directory)
         self.min_size_mb = min_size_mb
 
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+    def matches(self, path: str, size_mb: int) -> bool:
         return size_mb > self.min_size_mb and is_under(path, self.dir)
 
 
-class ExtensionSpec(Spec):
-    """Criteria 2 -> files whose name ends with the given extension, anywhere under directory."""
+class ExtensionCriteria(SearchCriteria):
+    """Rule 2 -> files whose name ends with the given extension, anywhere under directory."""
 
     def __init__(self, directory: str, ext: str):
         self.dir = normalize_dir(directory)
         self.ext = ext
 
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+    def matches(self, path: str, size_mb: int) -> bool:
         return is_under(path, self.dir) and file_name(path).endswith(self.ext)
 
 
-class AndSpec(Spec):
-    """AND -> the file must satisfy both sides. Same as set intersection."""
+# =====================================================================
+# STRATEGY 2 : boolean predicates
+# "Given two result sets, how do I merge them into one?"
+# =====================================================================
 
-    def __init__(self, left: Spec, right: Spec):
+class CombineStrategy:
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        raise NotImplementedError
+
+
+class AndStrategy(CombineStrategy):
+    """AND -> keep only what is in both sets."""
+
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        return left & right
+
+
+class OrStrategy(CombineStrategy):
+    """OR -> keep everything from both sets, duplicates collapse on their own."""
+
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        return left | right
+
+
+class AndNotStrategy(CombineStrategy):
+    """AND NOT -> keep what is in the left set but not in the right one."""
+
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        return left - right
+
+
+class FileFinder:
+    """In-memory version of the Unix find command."""
+
+    def __init__(self):
+        # path -> size in MB. A repeated path simply overwrites the old size.
+        self.files: Dict[str, int] = {}
+
+        # rule id -> builder. A new search rule is one extra entry here.
+        self.criteria_builders: Dict[str, Callable[[List[str]], SearchCriteria]] = {
+            "1": lambda parts: MinSizeCriteria(parts[1], int(parts[2].strip())),
+            "2": lambda parts: ExtensionCriteria(parts[1], parts[2].strip()),
+        }
+
+        # operator name -> strategy. A new boolean predicate is one extra entry here.
+        self.combine_strategies: Dict[str, CombineStrategy] = {
+            "AND": AndStrategy(),
+            "OR": OrStrategy(),
+            "AND NOT": AndNotStrategy(),
+        }
+
+    def addFile(self, path: str, sizeMb: int):
+        self.files[path.strip()] = sizeMb
+
+    def runQuery(self, rules: List[str], ops: List[str]) -> List[str]:
+        if not rules:
+            return []
+
+        # Start with the files matching the first rule.
+        result = self._run_rule(rules[0])
+
+        # Then apply one operator at a time, strictly left to right.
+        for i in range(min(len(rules) - 1, len(ops))):
+            nxt = self._run_rule(rules[i + 1])
+            result = self.combine_strategies[ops[i].strip()].combine(result, nxt)
+
+        # A set is already unique, we only need the ordering.
+        return sorted(result)
+
+    def _run_rule(self, rule: str) -> Set[str]:
+        """Runs one rule against every stored file and collects the matching paths."""
+        parts = rule.split(",")
+        criteria = self.criteria_builders[parts[0].strip()](parts)
+        return {path for path, size in self.files.items() if criteria.matches(path, size)}
+```
+
+Python's `&`, `|` and `-` already return brand new sets, so no combiner can corrupt a set its caller still holds.
+
+### Adding a new criteria, or a new operator
+
+The two extension points are symmetric, and neither touches `runQuery`.
+
+A new search rule:
+
+```python
+class NameContainsCriteria(SearchCriteria):
+    """Rule 3 -> files whose name contains the given text, anywhere under directory."""
+
+    def __init__(self, directory: str, needle: str):
+        self.dir = normalize_dir(directory)
+        self.needle = needle
+
+    def matches(self, path: str, size_mb: int) -> bool:
+        return is_under(path, self.dir) and self.needle in file_name(path)
+
+
+# one more entry in criteria_builders
+"3": lambda parts: NameContainsCriteria(parts[1], parts[2].strip()),
+```
+
+A new boolean operator, say `XOR`, meaning the file matched exactly one of the two rules:
+
+```python
+class XorStrategy(CombineStrategy):
+    def combine(self, left: Set[str], right: Set[str]) -> Set[str]:
+        return left ^ right
+
+
+# one more entry in combine_strategies
+"XOR": XorStrategy(),
+```
+
+That is the payoff of Strategy, and it is what the problem statement is asking for when it says the design must allow adding new criteria later.
+
+---
+
+## Solution 3 : Specification pattern
+
+Solution 2 combines **results**. The Specification pattern combines **rules** instead, and it is the usual way business rules get composed with boolean logic in real systems, so it is worth seeing.
+
+The idea: a boolean combination of two rules is itself a rule. `AndSpecification(a, b)` answers the same "does this file qualify?" question that `a` and `b` answer, so it can be passed anywhere a rule is expected. Folding left to right builds one object for the whole query.
+
+```
+r1  ->  And(r1, r2)  ->  Or(And(r1, r2), r3)  ->  AndNot(Or(And(r1, r2), r3), r4)
+```
+
+Then a single pass over the file dictionary keeps whatever satisfies that one object. No intermediate sets are built at all.
+
+The search criteria classes stay exactly as they were. Only the boolean layer changes, plus one small adapter that lets a criteria sit as a leaf of the tree.
+
+```python
+from typing import List, Dict, Callable
+
+
+def normalize_dir(directory: str) -> str:
+    """Drops trailing slashes so "/docs" and "/docs/" behave the same. Root becomes ""."""
+    d = directory.strip()
+    while len(d) > 1 and d.endswith("/"):
+        d = d[:-1]
+    return "" if d == "/" else d
+
+
+def is_under(path: str, normalized_dir: str) -> bool:
+    """Recursive containment. Root matches everything, "/docs" never matches "/docsx/a.xml"."""
+    return normalized_dir == "" or path.startswith(normalized_dir + "/")
+
+
+def file_name(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
+# =====================================================================
+# STRATEGY : search criteria, unchanged from solution 2
+# =====================================================================
+
+class SearchCriteria:
+    def matches(self, path: str, size_mb: int) -> bool:
+        raise NotImplementedError
+
+
+class MinSizeCriteria(SearchCriteria):
+    """Rule 1 -> files strictly larger than min_size_mb, anywhere under directory."""
+
+    def __init__(self, directory: str, min_size_mb: int):
+        self.dir = normalize_dir(directory)
+        self.min_size_mb = min_size_mb
+
+    def matches(self, path: str, size_mb: int) -> bool:
+        return size_mb > self.min_size_mb and is_under(path, self.dir)
+
+
+class ExtensionCriteria(SearchCriteria):
+    """Rule 2 -> files whose name ends with the given extension, anywhere under directory."""
+
+    def __init__(self, directory: str, ext: str):
+        self.dir = normalize_dir(directory)
+        self.ext = ext
+
+    def matches(self, path: str, size_mb: int) -> bool:
+        return is_under(path, self.dir) and file_name(path).endswith(self.ext)
+
+
+# =====================================================================
+# SPECIFICATION : a boolean expression over one file
+# =====================================================================
+
+class Specification:
+    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+        raise NotImplementedError
+
+
+class CriteriaSpecification(Specification):
+    """Leaf. Lets one criteria sit inside a specification tree."""
+
+    def __init__(self, criteria: SearchCriteria):
+        self.criteria = criteria
+
+    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
+        return self.criteria.matches(path, size_mb)
+
+
+class AndSpecification(Specification):
+    """AND -> both sides must hold."""
+
+    def __init__(self, left: Specification, right: Specification):
         self.left, self.right = left, right
 
     def is_satisfied_by(self, path: str, size_mb: int) -> bool:
         return self.left.is_satisfied_by(path, size_mb) and self.right.is_satisfied_by(path, size_mb)
 
 
-class OrSpec(Spec):
-    """OR -> the file must satisfy at least one side. Same as set union."""
+class OrSpecification(Specification):
+    """OR -> at least one side must hold."""
 
-    def __init__(self, left: Spec, right: Spec):
+    def __init__(self, left: Specification, right: Specification):
         self.left, self.right = left, right
 
     def is_satisfied_by(self, path: str, size_mb: int) -> bool:
         return self.left.is_satisfied_by(path, size_mb) or self.right.is_satisfied_by(path, size_mb)
 
 
-class AndNotSpec(Spec):
-    """AND NOT -> in the left side but not in the right side. Same as set difference."""
+class AndNotSpecification(Specification):
+    """AND NOT -> left must hold and right must not."""
 
-    def __init__(self, left: Spec, right: Spec):
+    def __init__(self, left: Specification, right: Specification):
         self.left, self.right = left, right
 
     def is_satisfied_by(self, path: str, size_mb: int) -> bool:
@@ -291,19 +504,17 @@ class FileFinder:
     """In-memory version of the Unix find command."""
 
     def __init__(self):
-        # path -> size in MB. A repeated path simply overwrites the old size.
         self.files: Dict[str, int] = {}
 
-        # rule id -> builder. Adding a new criteria later is one extra entry here.
-        self.builders: Dict[str, Callable[[List[str]], Spec]] = {
-            "1": lambda parts: MinSizeSpec(parts[1], int(parts[2].strip())),
-            "2": lambda parts: ExtensionSpec(parts[1], parts[2].strip()),
+        self.criteria_builders: Dict[str, Callable[[List[str]], SearchCriteria]] = {
+            "1": lambda parts: MinSizeCriteria(parts[1], int(parts[2].strip())),
+            "2": lambda parts: ExtensionCriteria(parts[1], parts[2].strip()),
         }
 
-        self.combiners: Dict[str, Callable[[Spec, Spec], Spec]] = {
-            "AND": AndSpec,
-            "OR": OrSpec,
-            "AND NOT": AndNotSpec,
+        self.combiners: Dict[str, Callable[[Specification, Specification], Specification]] = {
+            "AND": AndSpecification,
+            "OR": OrSpecification,
+            "AND NOT": AndNotSpecification,
         }
 
     def addFile(self, path: str, sizeMb: int):
@@ -313,52 +524,37 @@ class FileFinder:
         if not rules:
             return []
 
-        # Fold the rules left to right into a single specification tree.
-        query = self._build_criteria(rules[0])
+        # Fold the rules left to right into one specification tree.
+        query = self._to_specification(rules[0])
         for i in range(min(len(rules) - 1, len(ops))):
-            nxt = self._build_criteria(rules[i + 1])
+            nxt = self._to_specification(rules[i + 1])
             query = self.combiners[ops[i].strip()](query, nxt)
 
         # One pass over the stored files, dictionary keys are already unique.
         return sorted(p for p, size in self.files.items() if query.is_satisfied_by(p, size))
 
-    def _build_criteria(self, rule: str) -> Spec:
-        """"2,/docs,.xml" -> ExtensionSpec("/docs", ".xml")"""
+    def _to_specification(self, rule: str) -> Specification:
+        """"2,/docs,.xml" -> ExtensionCriteria, wrapped as a leaf specification."""
         parts = rule.split(",")
-        return self.builders[parts[0].strip()](parts)
+        criteria = self.criteria_builders[parts[0].strip()](parts)
+        return CriteriaSpecification(criteria)
 ```
 
-### Adding a new criteria later
+### When Specification earns its keep, and why not here
 
-Say we now want rule 3, a name-substring match. The entire change is this.
+Specification shines when the boolean expression is **nested or reused**. Think of `(premium OR longTenure) AND NOT fraudFlagged` in a pricing engine. A composite is itself a rule, so it can be stored in a field, passed to another service, reused across requests, or nested to any depth. Set combining cannot do that, because a set of results is tied to one moment and one data set.
 
-```python
-class NameContainsSpec(Spec):
-    """Criteria 3 -> files whose name contains the given text, anywhere under directory."""
+This problem has none of those needs. The expression is a flat chain with no brackets, it is thrown away at the end of the call, and nothing is reused. So the tree is paying for flexibility that never gets used, and it charges an extra adapter class for it.
 
-    def __init__(self, directory: str, needle: str):
-        self.dir = normalize_dir(directory)
-        self.needle = needle
-
-    def is_satisfied_by(self, path: str, size_mb: int) -> bool:
-        return is_under(path, self.dir) and self.needle in file_name(path)
-
-
-# inside FileFinder.__init__, one more entry in the builders dictionary
-"3": lambda parts: NameContainsSpec(parts[1], parts[2].strip()),
-```
-
-`runQuery` is untouched. So is every existing criteria. That is the payoff of Strategy, and it is exactly what the problem statement asks for when it says the design must allow adding new criteria later.
+That is why solution 2 is the one to reach for here. Solution 3 is the design you want the moment brackets or reusable rules enter the picture.
 
 ---
 
-## Why Strategy and Specification, and not something else
+## Why not Interpreter or Chain of Responsibility
 
-**Interpreter is the closest rival.** We are, after all, evaluating an expression. Interpreter earns its keep when there is a real grammar to handle: nested brackets, operator precedence, a tokenizer, a parse step. Our expression has none of that, it is a flat chain evaluated left to right. Adopting Interpreter would mean writing grammar and parsing machinery that never gets used, to reach the same tree that three small Specification classes give us directly.
+**Interpreter** is the closest rival to solution 3, because we are evaluating an expression. It earns its keep when there is a real grammar to handle: nested brackets, operator precedence, a tokenizer, a parse step. Our expression has none of that. Adopting Interpreter would mean writing grammar and parsing machinery that never gets used.
 
-**Chain of Responsibility sounds right but does not fit.** The phrase "pass each file through a chain of filters" makes it tempting. The problem is that in Chain of Responsibility each handler either handles the request or forwards it, and the chain stops at the first handler that takes ownership. That can model a run of ANDs, but it has no way to express OR or AND NOT, where both sides must be consulted before you can decide. If you patch it so that handlers return booleans and the caller combines them, you have rebuilt Specification with extra ceremony.
-
-One pattern we do get for free is **Composite**. `AndSpec`, `OrSpec` and `AndNotSpec` each hold children of their own base type, which is the Composite shape. Specification is Composite applied to booleans, so there is nothing extra to add.
+**Chain of Responsibility** sounds right at first, since "pass each file through a chain of filters" is a tempting description. The problem is that in Chain of Responsibility each handler either handles the request or forwards it, and the chain stops at the first handler that takes ownership. That can model a run of ANDs, but it cannot express OR or AND NOT, where both sides must be consulted before deciding. Patch it so handlers return booleans and the caller combines them, and you have rebuilt Specification with extra ceremony.
 
 ---
 
@@ -366,8 +562,11 @@ One pattern we do get for free is **Composite**. `AndSpec`, `OrSpec` and `AndNot
 
 Let `F` be the number of stored files and `R` the number of rules in a query.
 
-- `addFile` is `O(1)`, a single dictionary write.
-- `runQuery` builds the tree in `O(R)`, then does one pass over `F` files. Each file walks at most `2R - 1` nodes, and `and` and `or` short circuit, so it is usually far less. That gives `O(F * R)` plus `O(K log K)` for sorting `K` results.
-- Memory is `O(F)` for the file dictionary plus `O(R)` for the query tree, which is discarded after the call.
+**Solution 1, brute force.** Each merge uses `p in list`, a linear scan, so a single merge can cost `F * F` comparisons and the query lands at `O(R * F * F)`.
 
-The brute force version is genuinely worse, not just uglier. Each operator merges two lists using `p in list`, which is a linear scan, so a single merge can cost `F * F` comparisons and the whole query lands at `O(R * F * F)`. Switching to a set drops it back to `O(F * R)`, and the specification tree reaches the same bound while allocating no intermediate collection at all.
+**Solution 2, combine strategies.** Each rule scans all files once, `O(F * R)`, and each merge is a set operation costing `O(F)`. Total `O(F * R)` plus `O(K log K)` to sort `K` results.
+
+**Solution 3, specification.** Same `O(F * R)`, but it short-circuits per file and allocates no intermediate sets.
+
+
+Memory is `O(F)` for the file dictionary in every version, plus `O(F)` for the intermediate sets in solution 2 or `O(R)` for the tree in solution 3.
