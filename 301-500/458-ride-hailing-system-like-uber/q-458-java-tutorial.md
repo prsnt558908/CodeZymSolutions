@@ -6,32 +6,21 @@
 
 ## Core Idea
 
-We model the system with three small classes, `Rider`, `Driver` and `Trip`, each kept in a `HashMap` by id so every lookup is instant. A simple enum guards the fixed trip states. The only hard part is finding the nearest free driver quickly, so we put that job behind a small `DriverMatcher` interface. This is the **Strategy pattern**, and it is the right fit here: we start with a simple matcher that checks every driver, then swap in a fast quadtree matcher by changing just one line. State and Observer also sound useful, but for these fixed rules they would only add extra classes.
+We model the system with three small classes, `Rider`, `Driver` and `Trip`, each kept in a `HashMap` by id so every lookup is instant. A simple enum guards the fixed trip states. The only hard part is finding the nearest free driver quickly, so we give that job its own small class. We start with a version that checks every driver, then replace it with a fast quadtree. No design pattern is needed here: Strategy and State sound useful, but with one fixed matching rule and a few fixed trip states, they would only add extra classes.
 
 For the fast matcher, we compare two common spatial indexes: a grid and a quadtree. We code the quadtree, because it adapts on its own to crowded city centers and empty outskirts, which is exactly how real cities look.
 
 Payments are made safe to retry by remembering the answer we gave for every payment request id.
 
 
-## Design Patterns
+## Do We Need Design Patterns?
 
-### Strategy Pattern for Driver Matching
+No. Two patterns look tempting here, but both would add classes without making the code any clearer.
 
-Matching is the part of a ride app that keeps changing. Today the rule is "nearest driver wins". Tomorrow it might be "nearest driver with a good rating".
 
-So `RideHailingSystem` only talks to this interface:
+### Why Not the Strategy Pattern?
 
-```java
-interface DriverMatcher {
-    void addDriver(Driver driver);            // driver can now get requests
-    void removeDriver(Driver driver);         // driver can no longer get requests
-    Driver findNearestDriver(int x, int y);   // null when no driver is available
-}
-```
-
-We write two strategies in this article. `LinearDriverMatcher` is simple but slow. `QuadTreeDriverMatcher` is fast. A grid-based matcher would plug in the same way. Going from Solution 1 to Solution 2 changes one line in the main class.
-
-We use Strategy only where we really have more than one way to do a job. Surge pricing has one fixed rule, so a plain method is clearer there.
+Strategy helps when a program must choose between several ways of doing a job, for example matching by distance in one city and by driver rating in another. Here there is only one rule: the nearest driver wins, and the smaller id breaks ties. Each solution uses exactly one way to find that driver, so an interface would have just one class behind it. We still keep the search in its own small class, which keeps `RideHailingSystem` short. If more matching rules ever show up, adding an interface then is a small change.
 
 
 ### Why Not the State Pattern?
@@ -39,11 +28,6 @@ We use Strategy only where we really have more than one way to do a job. Surge p
 The State pattern would create one class per trip state, and each class would decide which moves are allowed.
 
 Here every move is allowed from exactly one state, and cancel is allowed from any active state. Each rule is a single `if`. Five state classes would spread these tiny rules over many places. An enum keeps all of them in plain sight.
-
-
-### Why Not the Observer Pattern?
-
-We could publish events like "driver moved" or "trip ended" and let listeners update the matcher. But there is just one listener, and it lives inside the same system. Calling the matcher directly is shorter and easier to follow.
 
 
 ## Building Blocks
@@ -127,6 +111,8 @@ Step 3 runs before step 4 on purpose. If an old failed request id is sent again,
 ## Solution 1: Check Every Available Driver
 
 `LinearDriverMatcher` keeps every available driver in a `HashSet`. To find the nearest one, it checks them all.
+
+It has three methods: `addDriver`, `removeDriver` and `findNearestDriver`. The quadtree in Solution 2 has the same three, so switching only changes one line in `RideHailingSystem`.
 
 Busy and offline drivers are never in the set. A driver leaves the set when it gets a trip or goes offline, and comes back when the trip ends or it comes online again.
 
@@ -242,31 +228,23 @@ class Trip {
 }
 
 /**
- * Strategy for finding the nearest available driver.
- * The system tells it when a driver becomes free or busy,
- * and asks it for the best driver for a pickup point.
+ * Finds the nearest available driver by checking every one of them.
+ * The system calls addDriver when a driver becomes free,
+ * and removeDriver when the driver gets a trip or goes offline.
  */
-interface DriverMatcher {
-    void addDriver(Driver driver);            // driver can now get requests
-
-    void removeDriver(Driver driver);         // driver can no longer get requests
-
-    Driver findNearestDriver(int x, int y);   // null when no driver is available
-}
-
-/** Simple strategy: keep all available drivers in a set and check every one of them. */
-class LinearDriverMatcher implements DriverMatcher {
+class LinearDriverMatcher {
     Set<Driver> availableDrivers = new HashSet<>();
 
-    public void addDriver(Driver driver) {
+    void addDriver(Driver driver) {
         availableDrivers.add(driver);
     }
 
-    public void removeDriver(Driver driver) {
+    void removeDriver(Driver driver) {
         availableDrivers.remove(driver);
     }
 
-    public Driver findNearestDriver(int x, int y) {
+    /** Returns null when no driver is available. */
+    Driver findNearestDriver(int x, int y) {
         Driver best = null;
         for (Driver driver : availableDrivers) {
             if (driver.isBetterThan(best, x, y)) {
@@ -288,7 +266,7 @@ public class RideHailingSystem {
     Map<String, Integer> surgeByZone = new HashMap<>();          // zoneId -> surge percentage
     Map<String, String> paymentRequestOwner = new HashMap<>();   // paymentRequestId -> tripId
 
-    DriverMatcher matcher = new LinearDriverMatcher();
+    LinearDriverMatcher matcher = new LinearDriverMatcher();
 
     public RideHailingSystem(long baseFareInCents, long farePerDistanceUnitInCents, int maxPaymentAttempts, List<String> drivers) {
         this.baseFareInCents = baseFareInCents;
@@ -619,7 +597,7 @@ Real cars have length and breadth, so two cars never stand on the exact same poi
 
 ### Code
 
-Only `QuadNode`, `QuadTreeDriverMatcher` and one line in `RideHailingSystem` are new. Everything else is the same as Solution 1.
+`QuadNode` and `QuadTreeDriverMatcher` replace `LinearDriverMatcher`, and one line in `RideHailingSystem` changes. Everything else is the same as Solution 1.
 
 ```java
 import java.util.*;
@@ -731,19 +709,6 @@ class Trip {
 }
 
 /**
- * Strategy for finding the nearest available driver.
- * The system tells it when a driver becomes free or busy,
- * and asks it for the best driver for a pickup point.
- */
-interface DriverMatcher {
-    void addDriver(Driver driver);            // driver can now get requests
-
-    void removeDriver(Driver driver);         // driver can no longer get requests
-
-    Driver findNearestDriver(int x, int y);   // null when no driver is available
-}
-
-/**
  * One square of the quadtree.
  * A leaf keeps a small list of drivers. A crowded leaf splits into 4 smaller squares.
  */
@@ -786,21 +751,25 @@ class QuadNode {
     }
 }
 
-/** Faster strategy: a quadtree. A square with too many drivers splits into 4 smaller squares. */
-class QuadTreeDriverMatcher implements DriverMatcher {
+/**
+ * Finds the nearest available driver with a quadtree.
+ * A square with too many drivers splits into 4 smaller squares.
+ */
+class QuadTreeDriverMatcher {
     int capacity = 10;   // a leaf splits once it holds more drivers than this
     // Side 2,097,152 = 2^21 covers every coordinate from -1,000,000 to 1,000,000
     QuadNode root = new QuadNode(-1_048_576, -1_048_576, 2_097_152);
 
-    public void addDriver(Driver driver) {
+    void addDriver(Driver driver) {
         insert(root, driver);
     }
 
-    public void removeDriver(Driver driver) {
+    void removeDriver(Driver driver) {
         remove(root, driver);
     }
 
-    public Driver findNearestDriver(int x, int y) {
+    /** Returns null when no driver is available. */
+    Driver findNearestDriver(int x, int y) {
         return search(root, x, y, null);
     }
 
@@ -882,7 +851,7 @@ public class RideHailingSystem {
     Map<String, Integer> surgeByZone = new HashMap<>();          // zoneId -> surge percentage
     Map<String, String> paymentRequestOwner = new HashMap<>();   // paymentRequestId -> tripId
 
-    DriverMatcher matcher = new QuadTreeDriverMatcher();
+    QuadTreeDriverMatcher matcher = new QuadTreeDriverMatcher();
 
     public RideHailingSystem(long baseFareInCents, long farePerDistanceUnitInCents, int maxPaymentAttempts, List<String> drivers) {
         this.baseFareInCents = baseFareInCents;
