@@ -1,269 +1,343 @@
 # Design Peer to Peer Parcel Delivery System in Java
 
 #### Problem Statement
-
 [https://codezym.com/question/76-design-peer-to-peer-parcel-delivery](https://codezym.com/question/76-design-peer-to-peer-parcel-delivery)
 
-Keep two things in order: waiting parcels and free drivers. A queue gives us the oldest waiting order, and a min-heap gives us the smallest free driver ID. Maps make status lookups quick. A few state checks handle pickup, cancellation, and delivery, so a separate design pattern is unnecessary for these fixed rules.
+---
 
+## Core Idea
 
-## What the system needs to remember
+Every order follows a fixed path: it is created, gets a driver, gets picked up and is finally delivered. It can also be canceled, but only before pickup.
 
-An assigned driver becomes busy immediately, even before pickup. The driver becomes free after delivery or cancellation before pickup.
+So an order is just a small **state machine**. An enum plus one rule method handles it cleanly. Patterns like State or Strategy would only add extra classes here, so this solution does not need any design pattern.
 
-Orders follow these transitions.
+The real work is matching orders with drivers. Free drivers sit in a **min-heap**, so the lexicographically smallest driver id is always on top.
+
+Waiting orders sit in a **queue**, so the oldest order is always served first. Whenever a driver becomes free, it takes the next waiting order.
+
+---
+
+## Order Life Cycle
 
 ```mermaid
 stateDiagram-v2
-    CREATED --> ASSIGNED: Driver available
-    ASSIGNED --> PICKED_UP: Pickup
-    PICKED_UP --> DELIVERED: Delivery
-    CREATED --> CANCELED: Cancel
-    ASSIGNED --> CANCELED: Cancel
+    [*] --> CREATED : createOrder
+    CREATED --> ASSIGNED : a driver is free
+    ASSIGNED --> PICKED_UP : pickUpOrder
+    PICKED_UP --> DELIVERED : deliverOrder
+    CREATED --> CANCELED : cancelOrder
+    ASSIGNED --> CANCELED : cancelOrder
 ```
 
-`ACCEPTED` and `PENDING` are responses from `createOrder`, not stored order states.
+- `CREATED`: the order is waiting for a driver.
+- `ASSIGNED`: a driver is reserved for the order but has not picked it up yet.
+- `PICKED_UP`: the driver has the parcel. Canceling is not allowed anymore.
+- `DELIVERED` and `CANCELED` are final states.
 
-| Creation result | Returned value | Stored order state |
-| --- | --- | --- |
-| A driver is assigned | `ACCEPTED` | `ASSIGNED` |
-| All drivers are busy | `PENDING` | `CREATED` |
-| The request is invalid | `INVALID` | No new order |
+A driver is either `AVAILABLE` or `BUSY:<orderId>`. It stays busy from assignment until delivery, or until its assigned order is canceled.
 
-The statement leaves duplicate order IDs and unknown status lookups unspecified. This solution rejects reused order IDs or `null` with `INVALID` and returns `ERROR` for unknown order or driver status lookups. Reuse is rejected even after cancellation or delivery.
+---
 
+## Approach 1: Brute Force (Scan Everything)
 
-## 1. Start with a simple scan
+Whenever a new order arrives or a driver becomes free, we need two answers:
 
-Keep orders in creation order. Whenever assignment is needed, scan for the first `CREATED` order, then scan all drivers to find the smallest available ID.
+1. Which free driver has the smallest id?
+2. Which waiting order is the oldest?
 
-For example, a map can store each driver's current order. `null` means available.
+The simplest way is to scan everything. Here `allOrders` is a list of all orders, in creation order.
 
 ```java
-String findAvailableDriver() {
+// scan every driver and keep the smallest free id
+String findFreeDriver() {
     String best = null;
-    for (String driverId : driverOrders.keySet()) {
-        if (driverOrders.get(driverId) == null
-                && (best == null || driverId.compareTo(best) < 0)) {
-            best = driverId;
+    for (Driver driver : drivers.values()) {
+        if (driver.isAvailable() && (best == null || driver.driverId.compareTo(best) < 0)) {
+            best = driver.driverId;
         }
     }
     return best;
 }
+
+// scan all orders in creation order and return the first one still waiting
+Order findOldestWaitingOrder() {
+    for (Order order : allOrders) {
+        if (order.status == OrderStatus.CREATED) {
+            return order;
+        }
+    }
+    return null;
+}
 ```
 
-This works, but one assignment can scan all orders and drivers, costing `O(N + D)` for `N` stored orders and `D` drivers. Repeating these scans does unnecessary work.
+Notice that we compare driver ids as **strings**. In lexicographic order `dv-10` comes before `dv-2`. A loop that goes `dv-0, dv-1, dv-2 ...` by number would pick the wrong driver.
 
+**Problems with this approach**
 
-## 2. Use a queue and a min-heap
+- `findFreeDriver()` checks all `D` drivers every single time.
+- `findOldestWaitingOrder()` checks all `N` orders ever created, even delivered and canceled ones.
 
-| Data | Structure | Why we need it |
-| --- | --- | --- |
-| `Order` | Small class | Groups the parcel details, status, and assigned driver |
-| `customers`, `deliverableItems` | Sets | Check exact customer and item IDs quickly |
-| `orders` | ID to `Order` map | Find an order without scanning |
-| `driverOrders` | Driver ID to order ID map | Track busy drivers and recognize valid driver IDs |
-| `pendingOrders` | `ArrayDeque` queue | Preserve creation order |
-| `availableDrivers` | `PriorityQueue<String>` | Choose the smallest free driver ID |
+Both become slow as the system grows. Let's fix them one at a time.
 
-`PriorityQueue` puts the smallest string at its head. `poll()` removes it and `offer()` adds a driver back. We never need to sort the full driver list again.
+---
 
-Compare complete driver IDs as strings. With twelve drivers, the order begins `dv-0`, `dv-1`, `dv-10`, `dv-11`, `dv-2`. Comparing only the number would select the wrong driver.
+## Approach 2: Min-Heap + Queue (Optimal)
 
-The State pattern could give every status its own class, but these transitions need only short checks. Strategy would help if driver selection rules were interchangeable. Here, the rule is fixed, so neither adds useful simplicity.
+### Fix 1: Min-heap for free drivers
 
+A min-heap (`PriorityQueue` in Java) always keeps the smallest element on top. Strings are compared lexicographically by default, which is exactly our rule.
 
-## 3. Keep assignment in one helper
+- Take the smallest free driver with `poll()` in `O(log D)`.
+- Put a driver back with `add()` in `O(log D)` when it becomes free.
 
-`assignPendingOrders` repeatedly takes the oldest waiting order and the smallest free driver. It records the assignment in both the order and `driverOrders`.
+We never need to remove a driver from the middle of the heap. A driver leaves the heap only when it gets an order, and orders always go to the driver on top.
 
-Call it after creating an order and whenever a driver is released. This makes automatic assignment happen before the public method returns.
+### Fix 2: Queue for waiting orders
 
-Canceling a waiting order only changes its status. Its queue entry stays until the helper reaches it, then the helper skips it. Each entry is removed once, so cancellation does not need a search through the queue.
+An order that can't get a driver right away goes to the back of a queue. Orders leave from the front, so the oldest one is always served first.
 
-Canceling an assigned order changes its status first, then releases its driver. Delivery follows the same release path. Pickup and delivery check both the current status and the assigned driver. Failed requests leave the system unchanged.
+What if a waiting order is canceled? Searching the queue to remove it would be slow. So we only mark it `CANCELED` and leave it there.
 
-An order keeps its last assigned driver ID after cancellation or delivery. The status prevents any further action on that order. `driverOrders` records the driver's current job.
+When it reaches the front later, we see it is canceled and simply drop it. This trick is called **lazy removal**.
 
+### When does matching happen?
 
-## Walk through a busy driver
+Only at two moments:
 
-Assume one driver, `dv-0`, and a valid customer and item.
+1. **A new order arrives.** If a driver is free, assign it now and return `ACCEPTED`. Otherwise add the order to the queue and return `PENDING`.
+2. **A driver becomes free.** This happens after a delivery, or when an `ASSIGNED` order is canceled. The driver goes back into the heap and takes the next waiting order.
 
-| Action | Return | What changes |
-| --- | --- | --- |
-| Create `A` | `ACCEPTED` | `dv-0` is assigned to `A` |
-| Create `B` | `PENDING` | `B` waits |
-| Create `C` | `PENDING` | `C` waits after `B` |
-| Cancel `B` | `CANCELED` | Its queue entry remains |
-| Cancel `A` | `CANCELED` | The helper skips `B` and assigns `C` to `dv-0` |
-| Pick up `C` with `dv-0` | `PICKED_UP` | `C` can no longer be canceled |
-| Cancel `C` | `ERROR` | Nothing changes |
-| Deliver `C` with `dv-0` | `DELIVERED` | `dv-0` becomes available |
+Because we match at both moments, a free driver and a waiting order never exist together. So when a new order finds a free driver, the queue is already empty and oldest first is still respected.
 
+### Other rules worth noticing
 
-## Why this works
+- `createOrder` returns `INVALID` for a duplicate order id, an unknown customer or an unknown item.
+- `pickUpOrder` and `deliverOrder` only work for the order's own driver. A wrong or unknown driver id never matches, so one check covers both cases.
+- The two status methods return `ERROR` for an unknown id.
 
-The queue preserves creation order, and skipped canceled entries cannot change the order of the remaining parcels. The heap contains each free driver exactly once, so every assignment selects the correct driver and removes that driver from availability.
+---
 
-Only valid transitions release a driver. Repeated cancellation or delivery fails before another release. After assignment finishes, a free driver and a waiting non-canceled order cannot remain together.
+## Do We Need Design Patterns?
 
+**State pattern** looks like a natural fit because an order has states. But it needs one class per state. With 5 states and 3 actions (cancel, pick up, deliver) that is 15 small methods, and 11 of them just return `ERROR`.
 
-## Complexity
+Freeing a driver also needs the heap and the queue, which live in the main class. So the state classes would need a link back to the main system. One `canMoveTo()` method that lists the valid moves is much simpler.
 
-Let `U` be the number of customers, `I` the number of configured items, `D` the number of drivers, and `N` the number of valid orders created. These costs assume bounded ID lengths and average constant-time hash lookups.
+**Strategy pattern** could make the driver choosing rule pluggable, like nearest driver or best rated driver. But this problem has exactly one fixed rule: the smallest driver id. An interface with a single implementation only adds code.
 
-| Operation | Time |
-| --- | --- |
-| Initialization, including heap construction | `O(U + I + D)` |
-| Pickup and status lookup | `O(1)` |
-| Cancel a waiting order | `O(1)` |
-| Create, deliver, or cancel an assigned order | `O(log(D + 1))` amortized |
+So we keep it simple: a few small classes, an enum for order states and the right data structures.
 
-One call can additionally skip `K` canceled queue entries, taking `O(K + log(D + 1))`. Each entry is skipped only once, so that extra work totals `O(N)` across the system's lifetime.
+---
 
-Space is `O(U + I + D + N)`. Old orders remain stored so their status can still be queried.
+## Classes and Data Structures
 
+| Class | Why we need it |
+|---|---|
+| `OrderStatus` | Enum of the 5 order states. Safer than typing raw strings. |
+| `Order` | Holds order details, status and the assigned driver. `canMoveTo()` keeps every state rule in one place. |
+| `Driver` | Remembers the one order the driver is carrying and builds the `AVAILABLE` or `BUSY:<orderId>` text. |
+| `PeerToPeerDeliverySystem` | Main class. Validates requests and matches orders with drivers. |
 
-## Complete Java code
+| Data structure | Why we need it |
+|---|---|
+| `Set<String> customerIds`, `Set<String> deliverableItemIds` | Validate a customer or item in `O(1)` without parsing ids. |
+| `Map<String, Driver> drivers`, `Map<String, Order> orders` | Find any driver or order by id in `O(1)`. |
+| `PriorityQueue<String> availableDrivers` | Gives the smallest free driver id in `O(log D)`. |
+| `Queue<Order> pendingOrders` | Keeps waiting orders, oldest first. |
 
-Save this as `PeerToPeerDeliverySystem.java`. Both classes are top-level classes.
+---
+
+## Final Code
 
 ```java
 import java.util.*;
 
+/** All the states an order can be in. */
+enum OrderStatus {
+    CREATED, ASSIGNED, PICKED_UP, DELIVERED, CANCELED
+}
+
+/** One parcel delivery request placed by a customer. */
 class Order {
     String orderId;
     String customerId;
     String itemId;
-    String status = "CREATED";
-    String driverId;
+    OrderStatus status;
+    String driverId; // null until a driver is assigned
 
     Order(String orderId, String customerId, String itemId) {
         this.orderId = orderId;
         this.customerId = customerId;
         this.itemId = itemId;
+        this.status = OrderStatus.CREATED;
+        this.driverId = null;
+    }
+
+    /**
+     * The order state machine. Valid moves are:
+     * CREATED -> ASSIGNED -> PICKED_UP -> DELIVERED
+     * CREATED or ASSIGNED -> CANCELED
+     */
+    boolean canMoveTo(OrderStatus nextStatus) {
+        if (status == OrderStatus.CREATED) {
+            return nextStatus == OrderStatus.ASSIGNED || nextStatus == OrderStatus.CANCELED;
+        }
+        if (status == OrderStatus.ASSIGNED) {
+            return nextStatus == OrderStatus.PICKED_UP || nextStatus == OrderStatus.CANCELED;
+        }
+        if (status == OrderStatus.PICKED_UP) {
+            return nextStatus == OrderStatus.DELIVERED;
+        }
+        return false; // no moves out of DELIVERED or CANCELED
+    }
+}
+
+/** A driver carries at most one order at a time. */
+class Driver {
+    String driverId;
+    String currentOrderId; // null means the driver is free
+
+    Driver(String driverId) {
+        this.driverId = driverId;
+        this.currentOrderId = null;
+    }
+
+    boolean isAvailable() {
+        return currentOrderId == null;
+    }
+
+    String getStatus() {
+        return isAvailable() ? "AVAILABLE" : "BUSY:" + currentOrderId;
     }
 }
 
 public class PeerToPeerDeliverySystem {
-    Set<String> customers = new HashSet<>();
-    Set<String> deliverableItems;
+    Set<String> customerIds = new HashSet<>();
+    Set<String> deliverableItemIds = new HashSet<>();
+    Map<String, Driver> drivers = new HashMap<>();
     Map<String, Order> orders = new HashMap<>();
 
-    // A null value means the driver is available.
-    Map<String, String> driverOrders = new HashMap<>();
-    Queue<String> pendingOrders = new ArrayDeque<>();
-    PriorityQueue<String> availableDrivers;
+    // free drivers, the lexicographically smallest id is always on top
+    PriorityQueue<String> availableDrivers = new PriorityQueue<>();
 
-    public PeerToPeerDeliverySystem(
-            int totalUsers,
-            int totalDrivers,
-            List<String> deliverableItemIds) {
-        deliverableItems = new HashSet<>(deliverableItemIds);
+    // orders waiting for a driver, oldest first
+    // a canceled order may still sit here, it is dropped when it reaches the front
+    Queue<Order> pendingOrders = new ArrayDeque<>();
 
+    public PeerToPeerDeliverySystem(int totalUsers, int totalDrivers, List<String> deliverableItemIds) {
         for (int i = 0; i < totalUsers; i++) {
-            customers.add("user-" + i);
+            customerIds.add("user-" + i);
         }
-
         for (int i = 0; i < totalDrivers; i++) {
-            driverOrders.put("dv-" + i, null);
+            String driverId = "dv-" + i;
+            drivers.put(driverId, new Driver(driverId));
+            availableDrivers.add(driverId);
         }
-
-        // String ordering puts dv-10 before dv-2.
-        availableDrivers = new PriorityQueue<>(driverOrders.keySet());
+        this.deliverableItemIds.addAll(deliverableItemIds);
     }
 
     public String createOrder(String orderId, String customerId, String itemId) {
-        if (orderId == null || orders.containsKey(orderId)
-                || !customers.contains(customerId)
-                || !deliverableItems.contains(itemId)) {
+        if (orders.containsKey(orderId) || !customerIds.contains(customerId)
+                || !deliverableItemIds.contains(itemId)) {
             return "INVALID";
         }
-
         Order order = new Order(orderId, customerId, itemId);
         orders.put(orderId, order);
-        pendingOrders.offer(orderId);
-        assignPendingOrders();
 
-        return order.status.equals("ASSIGNED") ? "ACCEPTED" : "PENDING";
+        if (availableDrivers.isEmpty()) {
+            pendingOrders.add(order);
+            return "PENDING";
+        }
+        assignOrder(order, availableDrivers.poll());
+        return "ACCEPTED";
     }
 
     public String cancelOrder(String orderId) {
         Order order = orders.get(orderId);
-        if (order == null || (!order.status.equals("CREATED")
-                && !order.status.equals("ASSIGNED"))) {
+        if (order == null || !order.canMoveTo(OrderStatus.CANCELED)) {
             return "ERROR";
         }
+        order.status = OrderStatus.CANCELED;
 
-        // Mark it first so assignment can never reuse a canceled order.
-        order.status = "CANCELED";
+        // ASSIGNED order: its driver was waiting, so set the driver free.
+        // CREATED order: it stays in pendingOrders and is dropped later.
         if (order.driverId != null) {
-            releaseDriver(order.driverId);
+            freeDriver(order.driverId);
         }
-
         return "CANCELED";
     }
 
     public String pickUpOrder(String driverId, String orderId) {
         Order order = orders.get(orderId);
-        if (order == null || !driverOrders.containsKey(driverId)
-                || !order.status.equals("ASSIGNED")
-                || !driverId.equals(order.driverId)) {
+        // a wrong or unknown driverId never matches order.driverId
+        if (order == null || !order.canMoveTo(OrderStatus.PICKED_UP)
+                || !order.driverId.equals(driverId)) {
             return "ERROR";
         }
-
-        order.status = "PICKED_UP";
+        order.status = OrderStatus.PICKED_UP;
         return "PICKED_UP";
     }
 
     public String deliverOrder(String driverId, String orderId) {
         Order order = orders.get(orderId);
-        if (order == null || !driverOrders.containsKey(driverId)
-                || !order.status.equals("PICKED_UP")
-                || !driverId.equals(order.driverId)) {
+        if (order == null || !order.canMoveTo(OrderStatus.DELIVERED)
+                || !order.driverId.equals(driverId)) {
             return "ERROR";
         }
-
-        order.status = "DELIVERED";
-        releaseDriver(driverId);
+        order.status = OrderStatus.DELIVERED;
+        freeDriver(driverId);
         return "DELIVERED";
     }
 
     public String getOrderStatus(String orderId) {
         Order order = orders.get(orderId);
-        return order == null ? "ERROR" : order.status;
+        return order == null ? "ERROR" : order.status.name();
     }
 
     public String getDriverStatus(String driverId) {
-        if (!driverOrders.containsKey(driverId)) {
-            return "ERROR";
-        }
-
-        String orderId = driverOrders.get(driverId);
-        return orderId == null ? "AVAILABLE" : "BUSY:" + orderId;
+        Driver driver = drivers.get(driverId);
+        return driver == null ? "ERROR" : driver.getStatus();
     }
 
-    void assignPendingOrders() {
-        while (!pendingOrders.isEmpty() && !availableDrivers.isEmpty()) {
-            Order order = orders.get(pendingOrders.poll());
-
-            // Canceled waiting orders stay in the queue until reached.
-            if (!order.status.equals("CREATED")) {
-                continue;
-            }
-
-            String driverId = availableDrivers.poll();
-            order.driverId = driverId;
-            order.status = "ASSIGNED";
-            driverOrders.put(driverId, order.orderId);
-        }
+    /** Links an order with a driver. */
+    void assignOrder(Order order, String driverId) {
+        order.status = OrderStatus.ASSIGNED;
+        order.driverId = driverId;
+        drivers.get(driverId).currentOrderId = order.orderId;
     }
 
-    void releaseDriver(String driverId) {
-        driverOrders.put(driverId, null);
-        availableDrivers.offer(driverId);
+    /** Marks a driver as free and hands out waiting orders. */
+    void freeDriver(String driverId) {
+        drivers.get(driverId).currentOrderId = null;
+        availableDrivers.add(driverId);
         assignPendingOrders();
+    }
+
+    /** Gives waiting orders to free drivers, oldest order first. */
+    void assignPendingOrders() {
+        while (!availableDrivers.isEmpty() && !pendingOrders.isEmpty()) {
+            Order order = pendingOrders.poll();
+            // lazy removal: a canceled order is simply dropped
+            if (order.status == OrderStatus.CREATED) {
+                assignOrder(order, availableDrivers.poll());
+            }
+        }
     }
 }
 ```
+
+---
+
+## Complexity
+
+| Method | Time |
+|---|---|
+| `createOrder` | `O(log D)` |
+| `cancelOrder` | `O(log D)` |
+| `pickUpOrder` | `O(1)` |
+| `deliverOrder` | `O(log D)` |
+| `getOrderStatus`, `getDriverStatus` | `O(1)` |
+
+`D` is the number of drivers. Dropping canceled orders from the queue adds a little extra work, but each order is dropped at most once in total. So on average `cancelOrder` and `deliverOrder` stay `O(log D)`.
+
+Space is `O(U + D + I + N)` for users, drivers, items and orders.

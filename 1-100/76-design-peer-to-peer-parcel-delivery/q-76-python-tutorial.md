@@ -1,232 +1,312 @@
 # Design Peer to Peer Parcel Delivery System in Python
 
 #### Problem Statement
-
 [https://codezym.com/question/76-design-peer-to-peer-parcel-delivery](https://codezym.com/question/76-design-peer-to-peer-parcel-delivery)
 
-Keep two things in order: waiting parcels and free drivers. A queue gives us the oldest waiting order, and a min-heap gives us the smallest free driver ID. Maps make status lookups quick. A few state checks handle pickup, cancellation, and delivery, so a separate design pattern is unnecessary for these fixed rules.
+---
 
+## Core Idea
 
-## What the system needs to remember
+Every order follows a fixed path: it is created, gets a driver, gets picked up and is finally delivered. It can also be canceled, but only before pickup.
 
-An assigned driver becomes busy immediately, even before pickup. The driver becomes free after delivery or cancellation before pickup.
+So an order is just a small **state machine**. An enum plus one rule method handles it cleanly. Patterns like State or Strategy would only add extra classes here, so this solution does not need any design pattern.
 
-Orders follow these transitions.
+The real work is matching orders with drivers. Free drivers sit in a **min-heap**, so the lexicographically smallest driver id is always on top.
+
+Waiting orders sit in a **queue**, so the oldest order is always served first. Whenever a driver becomes free, it takes the next waiting order.
+
+---
+
+## Order Life Cycle
 
 ```mermaid
 stateDiagram-v2
-    CREATED --> ASSIGNED: Driver available
-    ASSIGNED --> PICKED_UP: Pickup
-    PICKED_UP --> DELIVERED: Delivery
-    CREATED --> CANCELED: Cancel
-    ASSIGNED --> CANCELED: Cancel
+    [*] --> CREATED : createOrder
+    CREATED --> ASSIGNED : a driver is free
+    ASSIGNED --> PICKED_UP : pickUpOrder
+    PICKED_UP --> DELIVERED : deliverOrder
+    CREATED --> CANCELED : cancelOrder
+    ASSIGNED --> CANCELED : cancelOrder
 ```
 
-`ACCEPTED` and `PENDING` are responses from `createOrder`, not stored order states.
+- `CREATED`: the order is waiting for a driver.
+- `ASSIGNED`: a driver is reserved for the order but has not picked it up yet.
+- `PICKED_UP`: the driver has the parcel. Canceling is not allowed anymore.
+- `DELIVERED` and `CANCELED` are final states.
 
-| Creation result | Returned value | Stored order state |
-| --- | --- | --- |
-| A driver is assigned | `ACCEPTED` | `ASSIGNED` |
-| All drivers are busy | `PENDING` | `CREATED` |
-| The request is invalid | `INVALID` | No new order |
+A driver is either `AVAILABLE` or `BUSY:<orderId>`. It stays busy from assignment until delivery, or until its assigned order is canceled.
 
-The statement leaves duplicate order IDs and unknown status lookups unspecified. This solution rejects reused order IDs or `None` with `INVALID` and returns `ERROR` for unknown order or driver status lookups. Reuse is rejected even after cancellation or delivery.
+---
 
+## Approach 1: Brute Force (Scan Everything)
 
-## 1. Start with a simple scan
+Whenever a new order arrives or a driver becomes free, we need two answers:
 
-Keep orders in creation order. Whenever assignment is needed, scan for the first `CREATED` order, then scan all drivers to find the smallest available ID.
+1. Which free driver has the smallest id?
+2. Which waiting order is the oldest?
 
-For example, a dictionary can store each driver's current order. `None` means available.
+The simplest way is to scan everything. Here `self.allOrders` is a list of all orders, in creation order.
 
 ```python
-def findAvailableDriver(self):
+# scan every driver and keep the smallest free id
+def findFreeDriver(self):
     best = None
-    for driverId, orderId in self.driverOrders.items():
-        if orderId is None and (best is None or driverId < best):
-            best = driverId
+    for driver in self.drivers.values():
+        if driver.isAvailable() and (best is None or driver.driverId < best):
+            best = driver.driverId
     return best
+
+
+# scan all orders in creation order and return the first one still waiting
+def findOldestWaitingOrder(self):
+    for order in self.allOrders:
+        if order.status == OrderStatus.CREATED:
+            return order
+    return None
 ```
 
-This works, but one assignment can scan all orders and drivers, costing `O(N + D)` for `N` stored orders and `D` drivers. Repeating these scans does unnecessary work.
+Notice that we compare driver ids as **strings**. In lexicographic order `dv-10` comes before `dv-2`. A loop that goes `dv-0, dv-1, dv-2 ...` by number would pick the wrong driver.
 
+**Problems with this approach**
 
-## 2. Use a queue and a min-heap
+- `findFreeDriver()` checks all `D` drivers every single time.
+- `findOldestWaitingOrder()` checks all `N` orders ever created, even delivered and canceled ones.
 
-| Data | Structure | Why we need it |
-| --- | --- | --- |
-| `Order` | Small dataclass | Groups the parcel details, status, and assigned driver |
-| `customers`, `deliverableItems` | Sets | Check exact customer and item IDs quickly |
-| `orders` | ID to `Order` dictionary | Find an order without scanning |
-| `driverOrders` | Driver ID to order ID dictionary | Track busy drivers and recognize valid driver IDs |
-| `pendingOrders` | `deque` queue | Preserve creation order |
-| `availableDrivers` | list managed by `heapq` | Choose the smallest free driver ID |
+Both become slow as the system grows. Let's fix them one at a time.
 
-`heapq` keeps the smallest string at the front of a list. `heappop()` removes it and `heappush()` adds a driver back. `deque.popleft()` removes the oldest waiting order.
+---
 
-Compare complete driver IDs as strings. With twelve drivers, the order begins `dv-0`, `dv-1`, `dv-10`, `dv-11`, `dv-2`. Comparing only the number would select the wrong driver.
+## Approach 2: Min-Heap + Queue (Optimal)
 
-The State pattern could give every status its own class, but these transitions need only short checks. Strategy would help if driver selection rules were interchangeable. Here, the rule is fixed, so neither adds useful simplicity.
+### Fix 1: Min-heap for free drivers
 
+A min-heap always keeps the smallest element on top. The `heapq` module turns a plain list into a min-heap, with the smallest item at index `0`. Strings are compared lexicographically by default, which is exactly our rule.
 
-## 3. Keep assignment in one helper
+- Take the smallest free driver with `heapq.heappop()` in `O(log D)`.
+- Put a driver back with `heapq.heappush()` in `O(log D)` when it becomes free.
 
-`assignPendingOrders` repeatedly takes the oldest waiting order and the smallest free driver. It records the assignment in both the order and `driverOrders`.
+We never need to remove a driver from the middle of the heap. A driver leaves the heap only when it gets an order, and orders always go to the driver on top.
 
-Call it after creating an order and whenever a driver is released. This makes automatic assignment happen before the public method returns.
+### Fix 2: Queue for waiting orders
 
-Canceling a waiting order only changes its status. Its queue entry stays until the helper reaches it, then the helper skips it. Each entry is removed once, so cancellation does not need a search through the queue.
+An order that can't get a driver right away goes to the back of a queue (`collections.deque`). Orders leave from the front with `popleft()` in `O(1)`, so the oldest one is always served first.
 
-Canceling an assigned order changes its status first, then releases its driver. Delivery follows the same release path. Pickup and delivery check both the current status and the assigned driver. Failed requests leave the system unchanged.
+What if a waiting order is canceled? Searching the queue to remove it would be slow. So we only mark it `CANCELED` and leave it there.
 
-An order keeps its last assigned driver ID after cancellation or delivery. The status prevents any further action on that order. `driverOrders` records the driver's current job.
+When it reaches the front later, we see it is canceled and simply drop it. This trick is called **lazy removal**.
 
+### When does matching happen?
 
-## Walk through a busy driver
+Only at two moments:
 
-Assume one driver, `dv-0`, and a valid customer and item.
+1. **A new order arrives.** If a driver is free, assign it now and return `ACCEPTED`. Otherwise add the order to the queue and return `PENDING`.
+2. **A driver becomes free.** This happens after a delivery, or when an `ASSIGNED` order is canceled. The driver goes back into the heap and takes the next waiting order.
 
-| Action | Return | What changes |
-| --- | --- | --- |
-| Create `A` | `ACCEPTED` | `dv-0` is assigned to `A` |
-| Create `B` | `PENDING` | `B` waits |
-| Create `C` | `PENDING` | `C` waits after `B` |
-| Cancel `B` | `CANCELED` | Its queue entry remains |
-| Cancel `A` | `CANCELED` | The helper skips `B` and assigns `C` to `dv-0` |
-| Pick up `C` with `dv-0` | `PICKED_UP` | `C` can no longer be canceled |
-| Cancel `C` | `ERROR` | Nothing changes |
-| Deliver `C` with `dv-0` | `DELIVERED` | `dv-0` becomes available |
+Because we match at both moments, a free driver and a waiting order never exist together. So when a new order finds a free driver, the queue is already empty and oldest first is still respected.
 
+### Other rules worth noticing
 
-## Why this works
+- `createOrder` returns `INVALID` for a duplicate order id, an unknown customer or an unknown item.
+- `pickUpOrder` and `deliverOrder` only work for the order's own driver. A wrong or unknown driver id never matches, so one check covers both cases.
+- The two status methods return `ERROR` for an unknown id.
 
-The queue preserves creation order, and skipped canceled entries cannot change the order of the remaining parcels. The heap contains each free driver exactly once, so every assignment selects the correct driver and removes that driver from availability.
+---
 
-Only valid transitions release a driver. Repeated cancellation or delivery fails before another release. After assignment finishes, a free driver and a waiting non-canceled order cannot remain together.
+## Do We Need Design Patterns?
 
+**State pattern** looks like a natural fit because an order has states. But it needs one class per state. With 5 states and 3 actions (cancel, pick up, deliver) that is 15 small methods, and 11 of them just return `ERROR`.
 
-## Complexity
+Freeing a driver also needs the heap and the queue, which live in the main class. So the state classes would need a link back to the main system. One `canMoveTo()` method that lists the valid moves is much simpler.
 
-Let `U` be the number of customers, `I` the number of configured items, `D` the number of drivers, and `N` the number of valid orders created. These costs assume bounded ID lengths and average constant-time hash lookups.
+**Strategy pattern** could make the driver choosing rule pluggable, like nearest driver or best rated driver. But this problem has exactly one fixed rule: the smallest driver id. An interface with a single implementation only adds code.
 
-| Operation | Time |
-| --- | --- |
-| Initialization, including heap construction | `O(U + I + D)` |
-| Pickup and status lookup | `O(1)` |
-| Cancel a waiting order | `O(1)` |
-| Create, deliver, or cancel an assigned order | `O(log(D + 1))` amortized |
+So we keep it simple: a few small classes, an enum for order states and the right data structures.
 
-One call can additionally skip `K` canceled queue entries, taking `O(K + log(D + 1))`. Each entry is skipped only once, so that extra work totals `O(N)` across the system's lifetime.
+---
 
-Space is `O(U + I + D + N)`. Old orders remain stored so their status can still be queried.
+## Classes and Data Structures
 
+| Class | Why we need it |
+|---|---|
+| `OrderStatus` | Enum of the 5 order states. Safer than typing raw strings. |
+| `Order` | Holds order details, status and the assigned driver. `canMoveTo()` keeps every state rule in one place. |
+| `Driver` | Remembers the one order the driver is carrying and builds the `AVAILABLE` or `BUSY:<orderId>` text. |
+| `PeerToPeerDeliverySystem` | Main class. Validates requests and matches orders with drivers. |
 
-## Complete Python code
+| Data structure | Why we need it |
+|---|---|
+| `customerIds`, `deliverableItemIds` (sets) | Validate a customer or item in `O(1)` without parsing ids. |
+| `drivers`, `orders` (dicts) | Find any driver or order by id in `O(1)`. |
+| `availableDrivers` (list used as a heap) | Gives the smallest free driver id in `O(log D)`. |
+| `pendingOrders` (deque) | Keeps waiting orders, oldest first. |
 
-The public method names match the supplied starter code. `Order` is a dataclass because it only holds one order's data.
+---
+
+## Final Code
 
 ```python
-from collections import deque
-from dataclasses import dataclass
 import heapq
-from typing import Optional
+from collections import deque
+from enum import Enum
+from typing import List
 
 
-@dataclass
+class OrderStatus(Enum):
+    """All the states an order can be in."""
+    CREATED = "CREATED"
+    ASSIGNED = "ASSIGNED"
+    PICKED_UP = "PICKED_UP"
+    DELIVERED = "DELIVERED"
+    CANCELED = "CANCELED"
+
+
 class Order:
-    orderId: str
-    customerId: str
-    itemId: str
-    status: str = "CREATED"
-    driverId: Optional[str] = None
+    """One parcel delivery request placed by a customer."""
+
+    def __init__(self, orderId: str, customerId: str, itemId: str):
+        self.orderId = orderId
+        self.customerId = customerId
+        self.itemId = itemId
+        self.status = OrderStatus.CREATED
+        self.driverId = None  # None until a driver is assigned
+
+    def canMoveTo(self, nextStatus: OrderStatus) -> bool:
+        """
+        The order state machine. Valid moves are:
+        CREATED -> ASSIGNED -> PICKED_UP -> DELIVERED
+        CREATED or ASSIGNED -> CANCELED
+        """
+        if self.status == OrderStatus.CREATED:
+            return nextStatus in (OrderStatus.ASSIGNED, OrderStatus.CANCELED)
+        if self.status == OrderStatus.ASSIGNED:
+            return nextStatus in (OrderStatus.PICKED_UP, OrderStatus.CANCELED)
+        if self.status == OrderStatus.PICKED_UP:
+            return nextStatus == OrderStatus.DELIVERED
+        return False  # no moves out of DELIVERED or CANCELED
+
+
+class Driver:
+    """A driver carries at most one order at a time."""
+
+    def __init__(self, driverId: str):
+        self.driverId = driverId
+        self.currentOrderId = None  # None means the driver is free
+
+    def isAvailable(self) -> bool:
+        return self.currentOrderId is None
+
+    def getStatus(self) -> str:
+        if self.isAvailable():
+            return "AVAILABLE"
+        return "BUSY:" + self.currentOrderId
 
 
 class PeerToPeerDeliverySystem:
-    def __init__(self, totalUsers, totalDrivers, deliverableItemIds):
-        self.customers = {f"user-{i}" for i in range(totalUsers)}
-        self.deliverableItems = set(deliverableItemIds)
-        self.orders = {}
+    def __init__(self, totalUsers: int, totalDrivers: int,
+                 deliverableItemIds: List[str]):
+        self.customerIds = {"user-" + str(i) for i in range(totalUsers)}
+        self.deliverableItemIds = set(deliverableItemIds)
+        self.drivers = {}  # driverId -> Driver
+        self.orders = {}  # orderId -> Order
 
-        # A None value means the driver is available.
-        self.driverOrders = {f"dv-{i}": None for i in range(totalDrivers)}
+        # min-heap of free drivers,
+        # the lexicographically smallest id is always at index 0
+        self.availableDrivers = []
+
+        # orders waiting for a driver, oldest first
+        # a canceled order may still sit here,
+        # it is dropped when it reaches the front
         self.pendingOrders = deque()
 
-        # String ordering puts dv-10 before dv-2.
-        self.availableDrivers = list(self.driverOrders)
-        heapq.heapify(self.availableDrivers)
+        for i in range(totalDrivers):
+            driverId = "dv-" + str(i)
+            self.drivers[driverId] = Driver(driverId)
+            heapq.heappush(self.availableDrivers, driverId)
 
-    def createOrder(self, orderId, customerId, itemId):
-        if (orderId is None or orderId in self.orders
-                or customerId not in self.customers
-                or itemId not in self.deliverableItems):
+    def createOrder(self, orderId: str, customerId: str, itemId: str) -> str:
+        if (orderId in self.orders or customerId not in self.customerIds
+                or itemId not in self.deliverableItemIds):
             return "INVALID"
-
         order = Order(orderId, customerId, itemId)
         self.orders[orderId] = order
-        self.pendingOrders.append(orderId)
-        self.assignPendingOrders()
 
-        return "ACCEPTED" if order.status == "ASSIGNED" else "PENDING"
+        if not self.availableDrivers:
+            self.pendingOrders.append(order)
+            return "PENDING"
+        self.assignOrder(order, heapq.heappop(self.availableDrivers))
+        return "ACCEPTED"
 
-    def cancelOrder(self, orderId):
+    def cancelOrder(self, orderId: str) -> str:
         order = self.orders.get(orderId)
-        if order is None or order.status not in ("CREATED", "ASSIGNED"):
+        if order is None or not order.canMoveTo(OrderStatus.CANCELED):
             return "ERROR"
+        order.status = OrderStatus.CANCELED
 
-        # Mark it first so assignment can never reuse a canceled order.
-        order.status = "CANCELED"
+        # ASSIGNED order: its driver was waiting, so set the driver free.
+        # CREATED order: it stays in pendingOrders and is dropped later.
         if order.driverId is not None:
-            self.releaseDriver(order.driverId)
-
+            self.freeDriver(order.driverId)
         return "CANCELED"
 
-    def pickUpOrder(self, driverId, orderId):
+    def pickUpOrder(self, driverId: str, orderId: str) -> str:
         order = self.orders.get(orderId)
-        if (order is None or driverId not in self.driverOrders
-                or order.status != "ASSIGNED"
-                or driverId != order.driverId):
+        # a wrong or unknown driverId never matches order.driverId
+        if (order is None or not order.canMoveTo(OrderStatus.PICKED_UP)
+                or order.driverId != driverId):
             return "ERROR"
-
-        order.status = "PICKED_UP"
+        order.status = OrderStatus.PICKED_UP
         return "PICKED_UP"
 
-    def deliverOrder(self, driverId, orderId):
+    def deliverOrder(self, driverId: str, orderId: str) -> str:
         order = self.orders.get(orderId)
-        if (order is None or driverId not in self.driverOrders
-                or order.status != "PICKED_UP"
-                or driverId != order.driverId):
+        if (order is None or not order.canMoveTo(OrderStatus.DELIVERED)
+                or order.driverId != driverId):
             return "ERROR"
-
-        order.status = "DELIVERED"
-        self.releaseDriver(driverId)
+        order.status = OrderStatus.DELIVERED
+        self.freeDriver(driverId)
         return "DELIVERED"
 
-    def getOrderStatus(self, orderId):
+    def getOrderStatus(self, orderId: str) -> str:
         order = self.orders.get(orderId)
-        return "ERROR" if order is None else order.status
+        return "ERROR" if order is None else order.status.value
 
-    def getDriverStatus(self, driverId):
-        if driverId not in self.driverOrders:
-            return "ERROR"
+    def getDriverStatus(self, driverId: str) -> str:
+        driver = self.drivers.get(driverId)
+        return "ERROR" if driver is None else driver.getStatus()
 
-        orderId = self.driverOrders[driverId]
-        return "AVAILABLE" if orderId is None else f"BUSY:{orderId}"
+    def assignOrder(self, order: Order, driverId: str) -> None:
+        """Links an order with a driver."""
+        order.status = OrderStatus.ASSIGNED
+        order.driverId = driverId
+        self.drivers[driverId].currentOrderId = order.orderId
 
-    def assignPendingOrders(self):
-        while self.pendingOrders and self.availableDrivers:
-            order = self.orders[self.pendingOrders.popleft()]
-
-            # Canceled waiting orders stay in the queue until reached.
-            if order.status != "CREATED":
-                continue
-
-            driverId = heapq.heappop(self.availableDrivers)
-            order.driverId = driverId
-            order.status = "ASSIGNED"
-            self.driverOrders[driverId] = order.orderId
-
-    def releaseDriver(self, driverId):
-        self.driverOrders[driverId] = None
+    def freeDriver(self, driverId: str) -> None:
+        """Marks a driver as free and hands out waiting orders."""
+        self.drivers[driverId].currentOrderId = None
         heapq.heappush(self.availableDrivers, driverId)
         self.assignPendingOrders()
+
+    def assignPendingOrders(self) -> None:
+        """Gives waiting orders to free drivers, oldest order first."""
+        while self.availableDrivers and self.pendingOrders:
+            order = self.pendingOrders.popleft()
+            # lazy removal: a canceled order is simply dropped
+            if order.status == OrderStatus.CREATED:
+                self.assignOrder(order, heapq.heappop(self.availableDrivers))
 ```
+
+---
+
+## Complexity
+
+| Method | Time |
+|---|---|
+| `createOrder` | `O(log D)` |
+| `cancelOrder` | `O(log D)` |
+| `pickUpOrder` | `O(1)` |
+| `deliverOrder` | `O(log D)` |
+| `getOrderStatus`, `getDriverStatus` | `O(1)` |
+
+`D` is the number of drivers. Dropping canceled orders from the queue adds a little extra work, but each order is dropped at most once in total. So on average `cancelOrder` and `deliverOrder` stay `O(log D)`.
+
+Space is `O(U + D + I + N)` for users, drivers, items and orders.
